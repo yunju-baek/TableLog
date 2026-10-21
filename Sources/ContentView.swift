@@ -397,7 +397,7 @@ struct ContentView: View {
                     .foregroundStyle(AppTheme.muted)
                 }
             }
-            Text(model.statusMessage)
+            Text(model.displayStatusMessage)
                 .font(.system(size: 11))
                 .lineSpacing(4)
                 .foregroundStyle(AppTheme.muted)
@@ -518,7 +518,9 @@ struct ContentView: View {
                         .font(.system(size: 11)).foregroundStyle(AppTheme.muted)
                     HStack(spacing: 10) {
                         Button("회의록 다시 생성", action: model.regenerateHistoryMinutes)
-                            .buttonStyle(.borderedProminent).disabled(model.isBusy || model.meeting.busy)
+                            .buttonStyle(.borderedProminent).disabled(!model.canRegenerateHistoryMinutes)
+                        Button("회의록 보기") { meetingTab=1;showingMeeting=true }
+                            .buttonStyle(.bordered).disabled(model.meeting.lastURL == nil)
                         Button("문맥 다시 교정", action: model.recorrectHistoryTranscript)
                             .buttonStyle(.bordered).disabled(model.isBusy)
                     }.font(.system(size: 11))

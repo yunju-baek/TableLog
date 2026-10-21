@@ -270,6 +270,7 @@ struct MeetingWorkRecord: Codable {
         }
         if runningID==id { return }
         if !queue.contains(id) { queue.append(id) }
+        if sessionID==id { error=nil;status="회의록 생성 준비 · AI 작업 순서 대기" }
         guard task==nil else { return }
         busy=true
         task=Task { [weak self] in

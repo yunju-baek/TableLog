@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import SwiftUI
+import Combine
 
 @main struct EditingChecks {
     @MainActor static func main() async throws {
@@ -107,6 +108,66 @@ import SwiftUI
         let loaded=MeetingMaterials(root:materialRoot)
         check(loaded.context.documents[0].id==materials.context.documents[0].id,"material edit survives reopen")
         try materialReceipt.undo();check(materials.context.documents[0].id==original.id,"material undo restores selection")
+
+        // Exercise the main-screen observer across async generation, without an AI/network call.
+        let generationRoot=root.appendingPathComponent("GenerationStatus")
+        let controlled=SuspendedMinutesGenerator()
+        let generating=MeetingWorkspace(directory:generationRoot.appendingPathComponent("Minutes"),generator:controlled,defaults:defaults)
+        let main=AppModel(materials:MeetingMaterials(root:generationRoot.appendingPathComponent("Materials")),meeting:generating,
+            assistant:MeetingAssistant(directory:generationRoot.appendingPathComponent("Assistant"),defaults:defaults),loadEngine:false,
+            voice:VoiceIdentity(root:generationRoot.appendingPathComponent("Voice")),
+            history:MeetingHistoryStore(transcripts:generationRoot.appendingPathComponent("Transcripts"),minutes:generationRoot.appendingPathComponent("Minutes")),
+            transcriptDirectory:generationRoot.appendingPathComponent("Transcripts"),startBackgroundServices:false,preferences:defaults)
+        main.loadEditingFixture(reprocessing:true)
+        var mainChanges=0
+        let observation=main.objectWillChange.sink { mainChanges += 1 }
+        func waitForGenerator() async throws {
+            for _ in 0..<200 {
+                if await controlled.hasPending { return }
+                try await Task.sleep(nanoseconds:10_000_000)
+            }
+            fatalError("Timed out waiting for minutes generator")
+        }
+        func waitForSave() async throws {
+            for _ in 0..<200 {
+                if !generating.busy { return }
+                try await Task.sleep(nanoseconds:10_000_000)
+            }
+            fatalError("Timed out waiting for minutes save")
+        }
+        check(main.canRegenerateHistoryMinutes,"regeneration starts enabled")
+        main.regenerateHistoryMinutes()
+        check(!main.canRegenerateHistoryMinutes && generating.busy,"regeneration disables while running")
+        check(main.displayStatusMessage.contains("생성 준비"),"main screen shows queue state immediately")
+        let changesAtStart=mainChanges
+        try await waitForGenerator()
+        check(mainChanges>changesAtStart && main.displayStatusMessage.contains("1/1"),"async progress refreshes main screen")
+        main.regenerateHistoryMinutes()
+        check(await controlled.callCount==1,"duplicate regeneration is ignored")
+        var facts=MeetingMinutesFacts()
+        facts.summary=[EvidencedItem(text:"실습 과목 운영을 검토했습니다.",evidenceIDs:[1])]
+        let changesBeforeSave=mainChanges
+        await controlled.resolve(.success(facts))
+        try await waitForSave()
+        check(mainChanges>changesBeforeSave,"async completion refreshes main screen")
+        check(main.canRegenerateHistoryMinutes && main.displayStatusMessage.hasPrefix("회의록 저장 · "),"saved state reenables regeneration")
+        check(generating.metadata?.savedRevision==generating.metadata?.revision && generating.preview.contains("실습 과목 운영을 검토했습니다."),"saved preview matches completed revision")
+        let savedURL=generating.lastURL!, savedData=try Data(contentsOf:savedURL)
+        main.regenerateHistoryMinutes()
+        try await waitForGenerator()
+        let changesBeforeFailure=mainChanges
+        await controlled.resolve(.failure(MinutesGenerationError.response))
+        try await waitForSave()
+        check(mainChanges>changesBeforeFailure && main.canRegenerateHistoryMinutes,"failure refreshes and reenables main screen")
+        check(main.displayStatusMessage.hasPrefix("회의록 갱신 대기 · "),"main screen explains generation failure")
+        check(try Data(contentsOf:savedURL)==savedData,"failed regeneration preserves saved minutes")
+        main.regenerateHistoryMinutes()
+        check(generating.error==nil && main.displayStatusMessage.contains("생성 준비"),"retry clears previous failure immediately")
+        try await waitForGenerator()
+        await controlled.resolve(.success(facts))
+        try await waitForSave()
+        check(main.canRegenerateHistoryMinutes && main.displayStatusMessage.hasPrefix("회의록 저장 · "),"retry returns to saved state")
+        observation.cancel()
         print("RESULT: \(passed) checks passed")
         if CommandLine.arguments.contains("--live-all") {
             var failures=0
@@ -138,5 +199,21 @@ import SwiftUI
         window.contentView=NSHostingView(rootView:ContentView(model:model))
         window.makeKeyAndOrderFront(nil);app.activate(ignoringOtherApps:true)
         app.run()
+    }
+}
+
+private actor SuspendedMinutesGenerator: MinutesGenerating {
+    private var pending: CheckedContinuation<MeetingMinutesFacts,Error>?
+    private(set) var callCount=0
+    var hasPending: Bool { pending != nil }
+    func generate(_ input:MinutesGenerationInput,provider:MinutesProvider,settings:CodexCorrectionSettings,
+                  progress:@escaping @Sendable (Int,Int) async -> Void) async throws -> MeetingMinutesFacts {
+        callCount += 1
+        await progress(1,1)
+        return try await withCheckedThrowingContinuation { pending=$0 }
+    }
+    func resolve(_ result:Result<MeetingMinutesFacts,Error>) {
+        let continuation=pending;pending=nil
+        continuation?.resume(with:result)
     }
 }

@@ -30,6 +30,7 @@ import UniformTypeIdentifiers
     private var materialsObservation: AnyCancellable?
     @Published private(set) var meetingPrepared = false
     let meeting: MeetingWorkspace
+    private var meetingObservation: AnyCancellable?
     let assistant: MeetingAssistant
     private var assistantSyncKey = ""
     private var assistantAppendixKey = ""
@@ -191,6 +192,7 @@ import UniformTypeIdentifiers
         self.meeting.materialContext=self.materials.context
         self.assistant.resetForNewSession()
         materialsObservation=materials.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+        meetingObservation=meeting.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
         materials.didChange={ [weak self] in
             guard let self, !self.loadingHistory else { return }
             self.contextRevision=UUID();self.cancelCorrections()
@@ -1639,6 +1641,15 @@ extension AppModel {
 extension AppModel {
     var canPrepareMeeting: Bool { canStart && !materials.busy }
     var isReprocessing: Bool { reprocessingOrigin != nil }
+    var canRegenerateHistoryMinutes: Bool { isReprocessing && !closing && !isBusy && !meeting.busy && meeting.canGenerate }
+    var displayStatusMessage: String {
+        if isReprocessing && !isBusy {
+            if meeting.busy { return meeting.status }
+            if let error=meeting.error { return error }
+            if (meeting.metadata?.savedRevision ?? -1) >= 0 { return meeting.status }
+        }
+        return statusMessage
+    }
     var canOpenHistoryForReprocessing: Bool {
         canPrepareMeeting && !meeting.busy && !assistant.busy && correctionTask == nil
             && !speakerReviewRunning && !voice.learningBusy
@@ -1696,9 +1707,8 @@ extension AppModel {
         return errorMessage == nil
     }
     func regenerateHistoryMinutes() {
-        guard isReprocessing,!closing,!isBusy,!meeting.busy else { return }
+        guard canRegenerateHistoryMinutes else { return }
         syncMeetingMinutes(force:true);meeting.generateNow()
-        statusMessage="재가공본의 회의록을 생성하고 있습니다. 회의자료·회의록에서 결과를 확인하세요."
     }
     func recorrectHistoryTranscript() {
         guard isReprocessing,!closing,!isBusy,!speakerReviewRunning,correctionTask == nil else { return }

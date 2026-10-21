@@ -1,6 +1,6 @@
 #if TABLELOG_VERIFICATION
 extension AppModel {
-    func loadEditingFixture() {
+    func loadEditingFixture(reprocessing: Bool = false) {
         phase = .completed
         statusMessage = "편집 화면 확인용 예시 회의"
         sessionTitle = "교육과정 기획 회의 · 예시"
@@ -10,6 +10,10 @@ extension AppModel {
             TranscriptSegment(id:2,speaker:1,startTime:8,endTime:16,text:"실습 예산은 삼천만원으로 검토하겠습니다."),
             TranscriptSegment(id:3,speaker:2,startTime:16,endTime:24,text:"학생 의견을 다음 회의에서 공유하겠습니다.")]
         liveText=segments.map(\.text).joined(separator:" ");audioSeconds=24
+        if reprocessing {
+            reprocessingOrigin=MeetingReprocessingOrigin(sourceSessionID:UUID(),sourceTitle:sessionTitle,
+                sourceTranscriptPath:nil,sourceRecordPath:nil,sourceMinutesPath:nil,createdAt:Date())
+        }
         syncMeetingMinutes(force:true)
     }
 }
