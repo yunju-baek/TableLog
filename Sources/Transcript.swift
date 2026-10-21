@@ -146,7 +146,7 @@ struct TranscriptDocument: Encodable {
     let schema_version = 14
     let app = "테이블로그"
     let engine = "NVIDIA NeMo-Speech.cpp / Metal"
-    let engine_revision = "97a15afa5caa9bce5baaa86c1184103877af4101"
+    let engine_revision = "6a3ca369370782acee0dd155e34394ba60b920c4"
     let language = "ko-KR"
     let speaker_capacity = 8
     let session_id: String

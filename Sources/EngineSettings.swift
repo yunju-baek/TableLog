@@ -12,6 +12,8 @@ struct EngineSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("NVIDIA 음성·화자 설정").font(.title3.bold())
+            Text("NeMo-Speech.cpp 0.2.0 · 발언 경계의 문맥 유지 · Metal")
+                .font(.caption).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 10) {
                 Text("음성 인식 · Nemotron 3.5 ASR 0.6B").font(.headline)
                 Picker("인식 문맥", selection: $settings.rightContext) {

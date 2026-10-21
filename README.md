@@ -1,20 +1,21 @@
-# 테이블로그 2.5.0
+# 테이블로그 2.6.0
 
 macOS에서 회의를 녹음하고 화자별 녹취·회의록·참고 자료를 정리하는 앱입니다. 자연어 편집 채팅으로 문장과 화자를 수정하고, AI CLI를 선택해 교정·요약·자료 분석에 사용할 수 있습니다.
 
 - [사용법·도움말](docs/USER_GUIDE.md)
 - [Codex · Claude Code · Gemini CLI 연결](docs/AI_CLI_SETUP.md)
 - [버전 기록](docs/CHANGELOG.md)
+- [음성 엔진 업데이트·화자 모델 비교](docs/ENGINE_UPDATE_2.6.0.md)
 
 ## 실행 환경
 
-macOS 26, Apple Silicon, Xcode Command Line Tools가 필요합니다. 현재 버전은 2.5.0, 빌드 27입니다.
+macOS 26, Apple Silicon, Xcode Command Line Tools가 필요합니다. 현재 버전은 2.6.0, 빌드 28입니다.
 
 로컬 음성 인식·화자 분리는 NVIDIA Nemotron, 등록 목소리 비교는 TitaNet을 사용합니다. AI 문맥 처리는 설치된 Codex, Claude Code, Gemini CLI 가운데 하나를 선택합니다. 각 CLI의 로그인 계정과 사용 한도가 적용됩니다.
 
 ## 빌드
 
-이 저장소는 Swift 소스와 네이티브 연결 모듈을 담습니다. 빌드는 기존 테이블로그 앱에 포함된 음성 엔진 동적 라이브러리·라이선스·리소스를 사용합니다. 모델은 `~/Library/Application Support/TableLog/Models`에서 읽습니다.
+이 저장소는 Swift 소스와 네이티브 연결 모듈을 담습니다. 음성 엔진은 NeMo-Speech.cpp v0.2.0으로 고정합니다. 첫 엔진 빌드는 [네이티브 빌드 안내](Native/README.md)를 따르고, 이후에는 같은 엔진을 포함한 설치본의 라이브러리·리소스를 재사용합니다. 모델은 `~/Library/Application Support/TableLog/Models`에서 읽습니다.
 
 ```bash
 bash build.sh "$HOME/Applications/테이블로그.app"

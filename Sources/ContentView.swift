@@ -326,7 +326,8 @@ struct ContentView: View {
                     Button(action: AppHelp.openGuide) { Label("사용법·도움말", systemImage: "questionmark.circle") }
                         .buttonStyle(.plain).help("GitHub 사용법 열기").accessibilityLabel("사용법·도움말 열기")
                     Spacer()
-                    Text("2.5.0").font(.system(size: 9)).foregroundStyle(AppTheme.muted)
+                    Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "테이블로그")
+                        .font(.system(size: 9)).foregroundStyle(AppTheme.muted)
                 }.font(.system(size: 11)).padding(.bottom, 5)
                 Label(model.usesGemini ? "Gemini 전사 · Mac 화자 분리" : (model.codexSettings.mode == .codex ? "로컬 전사 · \(model.codexSettings.provider.title) 교정" : "로컬 음성 인식"),
                       systemImage: model.usesGemini ? "cloud" : "desktopcomputer")

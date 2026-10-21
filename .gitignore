@@ -1,6 +1,7 @@
 .DS_Store
 .build-cache/
 .verification/
+.runtime/
 Sources.before-chat/
 Builds/
 *.app/
