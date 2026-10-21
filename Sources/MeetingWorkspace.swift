@@ -24,17 +24,17 @@ struct MeetingWorkRecord: Codable {
     var editedOutput: String? = nil
     var input: MinutesGenerationInput {
         MinutesGenerationInput(segments: segments, purpose: purpose, relatedTopics: template.similarTopics,
-                               speakerNames: Dictionary(uniqueKeysWithValues: names.map { (String($0.key), $0.value) }), materials: materials)
+                               speakerNames: Dictionary(uniqueKeysWithValues: names.map { (String($0.key), $0.value) }), materials: materials, title: title)
     }
     func snapshot(facts: MeetingMinutesFacts) -> MeetingMinutesSnapshot {
         var people = bindings.confirmedParticipants, speakers = bindings.speakers
-        for (speaker,name) in names where speakers[speaker] == nil {
+        for (speaker,name) in names.sorted(by: { $0.key < $1.key }) where speakers[speaker] == nil {
             let person = MeetingPerson(id: "manual-\(speaker)", name: name)
             speakers[speaker] = person
             if !people.contains(where: { $0.name == name }) { people.append(person) }
         }
         return MeetingMinutesSnapshot(sessionID:id,revision:revision,date:date,purpose:purpose,
-            confirmedParticipants:people,speakerBindings:speakers,utterances:segments,facts:facts,referenceAppendix:(materials?.appendix(reviews:facts.materialReviews ?? [],segments:segments) ?? "") + (assistantAppendix ?? ""))
+            confirmedParticipants:people,speakerBindings:speakers,utterances:segments,facts:facts,title:title)
     }
 }
 
@@ -102,7 +102,7 @@ struct MeetingWorkRecord: Codable {
             if FileManager.default.fileExists(atPath:folder.path) {
                 for file in try FileManager.default.contentsOfDirectory(at:folder,includingPropertiesForKeys:nil) where file.pathExtension=="json" {
                     if let value=try? JSONDecoder().decode(MeetingTemplate.self,from:Data(contentsOf:file)) {
-                        templates.removeAll {$0.id==value.id};templates.append(value)
+                        templates.removeAll {$0.id==value.id};templates.append(value.minutesOnly)
                     }
                 }
             }
@@ -124,7 +124,7 @@ struct MeetingWorkRecord: Codable {
         activeSessions.insert(id)
         sessionID=id;bindings=MeetingSpeakerBindings(sessionID:id)
         for person in attendance { bindings.confirmAttendance(person) }
-        generatedURL=nil;generatedPreview="";error=nil;status="회의록 전사문 대기"
+        generatedURL=nil;generatedPreview="";error=nil;status="회의록 작성 대기"
         let draft=editingDraftURL(id)
         editedPreview=try? String(contentsOf:draft,encoding:.utf8)
         editedURL=editedPreview == nil ? nil : draft;editedRevision=UUID()
@@ -143,6 +143,7 @@ struct MeetingWorkRecord: Codable {
         begin(id:source.id)
         manualOnlySessions.insert(source.id)
         var record=source
+        record.template = record.template.minutesOnly
         record.revision=1;record.savedRevision = -1;record.output=nil;record.error=nil
         record.editedOutput=nil
         record.ended=true;record.assistantAppendix="";record.updatedAt=Date()
@@ -161,6 +162,7 @@ struct MeetingWorkRecord: Codable {
     func attend(_ person:MeetingPerson) { bindings.confirmAttendance(person) }
     func remove(personID:String) { bindings.removeAttendance(personID:personID) }
     func saveTemplate(_ template:MeetingTemplate) {
+        let template = template.minutesOnly
         do {
             // Validate placeholders before saving; a malformed template never replaces a working one.
             _ = try MeetingMinutesRenderer.render(MeetingMinutesSnapshot(sessionID:UUID(),revision:0,date:"",purpose:"",confirmedParticipants:[],speakerBindings:[:],utterances:[],facts:MeetingMinutesFacts()),template:template)
@@ -254,11 +256,11 @@ struct MeetingWorkRecord: Codable {
             let url=directory.appendingPathComponent(id.uuidString+".md")
             try Data(markdown.utf8).write(to:url,options:.atomic)
             records[id]?.output=url.path;persist(id)
-            if sessionID==id { generatedURL=url;generatedPreview=markdown;status="전사문 저장 · 회의록 생성 대기" }
-        } catch { self.error="회의록 전사문 저장 실패 · " + error.localizedDescription }
+            if sessionID==id { generatedURL=url;generatedPreview=markdown;status="회의록 작성 대기" }
+        } catch { self.error="회의록 초안 저장 실패 · " + error.localizedDescription }
     }
     private func reportProgress(id:UUID,part:Int,total:Int,provider:MinutesProvider) {
-        if sessionID==id { status="회의록 생성 중 · \(part)/\(total) · \(provider.title)" }
+        if sessionID==id { status="안건별 회의록 작성 · \(part)/\(total) · \(provider.title)" }
     }
     private func enqueue(_ id:UUID,force:Bool=false) {
         guard activeSessions.contains(id),force || !manualOnlySessions.contains(id),let record=records[id],(!record.segments.isEmpty || force),force || record.revision>record.savedRevision else { return }

@@ -30,7 +30,7 @@ struct MeetingWorkspaceView: View {
                         .font(.caption).foregroundStyle(AppTheme.violet)
                 }
                 MinutesTextView(documentID:workspace.sessionID ?? workspace.bindings.sessionID,
-                    text:workspace.preview.isEmpty ? "인식된 전사문으로 회의록을 생성하면 여기에 표시됩니다." : workspace.preview)
+                    text:workspace.preview.isEmpty ? "회의 전체를 안건별로 정리한 회의록을 생성하면 여기에 표시됩니다." : workspace.preview)
                     .clipShape(RoundedRectangle(cornerRadius:10))
             }
             Divider()
@@ -152,7 +152,7 @@ struct MeetingWorkspaceView: View {
                         if workspace.provider != .codex {
                             Text("이 회의의 회의록 작성과 자료 분석에 사용할 AI CLI를 선택해 주세요. ‘AI CLI 사용’을 누르면 설정이 적용됩니다.").font(.caption).foregroundStyle(AppTheme.violet)
                         }
-                        Text("같은 회의의 Markdown 파일을 계속 갱신합니다. 선택한 AI CLI에 전사문·이름·주제와 회의자료의 추출문을 전달해 회의록을 작성합니다. CLI와 모델은 ‘AI 설정’에서 변경할 수 있습니다.").font(.caption).foregroundStyle(.secondary)
+                        Text("회의 개요·핵심 요약·안건별 논의·결정 사항·후속 조치로 구성한 Markdown 파일을 갱신합니다. 전사와 근거 시각은 앱의 전사 화면에서 확인합니다. 선택한 AI CLI에 전사문·이름·주제와 회의자료의 추출문을 전달해 회의록을 작성합니다. CLI와 모델은 ‘AI 설정’에서 변경할 수 있습니다.").font(.caption).foregroundStyle(.secondary)
                     }.padding(7)
                 }
             }.padding(.trailing,5)
@@ -214,7 +214,7 @@ private struct MeetingTemplateEditor:View {
             }.frame(height:40)
             Text("Markdown 형식").font(.headline)
             TextEditor(text:$template.markdown).font(.system(size:12,design:.monospaced)).border(.quaternary)
-            Text("변수: {{datetime}}, {{participants}}, {{purpose}}, {{summary}}, {{decisions}}, {{actions}}, {{discussion}}, {{open_issues}}, {{transcript}}")
+            Text("변수: {{title}}, {{overview}}, {{datetime}}, {{participants}}, {{purpose}}, {{summary}}, {{decisions}}, {{actions}}, {{discussion}}, {{open_issues}}")
                 .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             Text("참석자와 주제는 다음 회의의 후보로 저장됩니다. 이번 회의의 내용은 전사문을 근거로 작성합니다.").font(.caption).foregroundStyle(.secondary)
             if let error { Text(error).font(.caption).foregroundStyle(.orange) }
@@ -225,7 +225,8 @@ private struct MeetingTemplateEditor:View {
                 Button("템플릿 저장") {
                     template.name=String(template.name.trimmingCharacters(in:.whitespacesAndNewlines).prefix(120))
                     template.similarTopics=topics.components(separatedBy:CharacterSet(charactersIn:",\n")).map {$0.trimmingCharacters(in:.whitespacesAndNewlines)}.filter {!$0.isEmpty}
-                    guard !template.name.isEmpty,template.markdown.contains("{{transcript}}") else { error="템플릿 이름과 {{transcript}} 변수를 입력하세요.";return }
+                    template = template.minutesOnly
+                    guard !template.name.isEmpty,["{{summary}}","{{discussion}}","{{decisions}}","{{actions}}"].contains(where:template.markdown.contains) else { error="템플릿 이름과 회의 본문 변수를 입력하세요.";return }
                     do {
                         _ = try MeetingMinutesRenderer.render(MeetingMinutesSnapshot(sessionID:UUID(),revision:0,date:"",purpose:"",confirmedParticipants:[],speakerBindings:[:],utterances:[],facts:MeetingMinutesFacts()),template:template)
                         onSave(template);onClose()

@@ -1,4 +1,4 @@
-# 테이블로그 2.6.0
+# 테이블로그 2.6.1
 
 macOS에서 회의를 녹음하고 화자별 녹취·회의록·참고 자료를 정리하는 앱입니다. 자연어 편집 채팅으로 문장과 화자를 수정하고, AI CLI를 선택해 교정·요약·자료 분석에 사용할 수 있습니다.
 
@@ -9,7 +9,7 @@ macOS에서 회의를 녹음하고 화자별 녹취·회의록·참고 자료를
 
 ## 실행 환경
 
-macOS 26, Apple Silicon, Xcode Command Line Tools가 필요합니다. 현재 버전은 2.6.0, 빌드 28입니다.
+macOS 26, Apple Silicon, Xcode Command Line Tools가 필요합니다. 현재 버전은 2.6.1, 빌드 29입니다.
 
 로컬 음성 인식·화자 분리는 NVIDIA Nemotron, 등록 목소리 비교는 TitaNet을 사용합니다. AI 문맥 처리는 설치된 Codex, Claude Code, Gemini CLI 가운데 하나를 선택합니다. 각 CLI의 로그인 계정과 사용 한도가 적용됩니다.
 
@@ -29,12 +29,17 @@ bash build.sh "$HOME/Applications/테이블로그.app"
 - `Nemotron-3-Diarization.q8_0.gguf`
 - `nemo_en_titanet_large.onnx`
 
+## 회의록
+
+회의 전체를 안건별로 종합해 회의 개요·핵심 요약·논의 내용·결정 사항·후속 조치·확인할 사항을 Markdown으로 저장합니다. 전사·녹음 시각·도우미 기록은 앱의 각 화면에서 확인합니다. 긴 회의는 구간별 추출 후 전체 종합을 거쳐 반복을 정리합니다.
+
 ## 검증
 
 격리된 임시 저장소와 예시 발언으로 편집·복원·설정 호환·CLI 응답 검증을 실행합니다.
 
 ```bash
 bash Verification/run-editing-checks.sh
+bash Verification/run-minutes-checks.sh
 # 세 CLI의 연결과 예시 발언 화자 수정까지 확인합니다. 각 계정의 사용량이 발생합니다.
 bash Verification/run-editing-checks.sh --live-all
 ```
