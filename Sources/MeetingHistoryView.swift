@@ -195,7 +195,7 @@ struct MeetingHistoryView: View {
         if value.markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             emptyState("저장한 회의록이 여기에 표시됩니다. 전사 탭에서 발언을 확인할 수 있습니다.", icon: "doc.text")
         } else {
-            MinutesTextView(documentID: value.id, text: value.markdown)
+            MinutesPreviewView(documentID: value.id, text: value.markdown)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
         }
     }

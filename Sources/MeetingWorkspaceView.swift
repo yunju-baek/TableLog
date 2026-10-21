@@ -29,7 +29,7 @@ struct MeetingWorkspaceView: View {
                     Label("채팅 편집본 · 자동 생성본은 저장 폴더에서 확인할 수 있습니다.", systemImage: "pencil.line")
                         .font(.caption).foregroundStyle(AppTheme.violet)
                 }
-                MinutesTextView(documentID:workspace.sessionID ?? workspace.bindings.sessionID,
+                MinutesPreviewView(documentID:workspace.sessionID ?? workspace.bindings.sessionID,
                     text:workspace.preview.isEmpty ? "회의 전체를 안건별로 정리한 회의록을 생성하면 여기에 표시됩니다." : workspace.preview)
                     .clipShape(RoundedRectangle(cornerRadius:10))
             }

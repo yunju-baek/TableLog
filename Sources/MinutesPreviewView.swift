@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// Keeps the complete minutes selectable while laying out the visible text first.
-struct MinutesTextView: NSViewRepresentable {
+/// A rendered Markdown document with native selection, copying and find support.
+struct MinutesPreviewView: NSViewRepresentable {
     let documentID: UUID
     let text: String
 
@@ -45,7 +45,7 @@ final class MinutesTextScrollView: NSScrollView {
         backgroundColor = .white
         minutesTextView.isEditable = false
         minutesTextView.isSelectable = true
-        minutesTextView.isRichText = false
+        minutesTextView.isRichText = true
         minutesTextView.importsGraphics = false
         minutesTextView.allowsUndo = false
         minutesTextView.isVerticallyResizable = true
@@ -53,11 +53,11 @@ final class MinutesTextScrollView: NSScrollView {
         minutesTextView.autoresizingMask = [.width]
         minutesTextView.minSize = NSSize(width: 0, height: 0)
         minutesTextView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        minutesTextView.textContainerInset = NSSize(width: 16, height: 16)
+        minutesTextView.textContainerInset = NSSize(width: 28, height: 26)
         minutesTextView.backgroundColor = .white
         minutesTextView.usesFindBar = true
         minutesTextView.isIncrementalSearchingEnabled = true
-        minutesTextView.setAccessibilityLabel("회의록 본문")
+        minutesTextView.setAccessibilityLabel("회의록 미리보기")
         documentView = minutesTextView
     }
 
@@ -68,13 +68,8 @@ final class MinutesTextScrollView: NSScrollView {
         guard changedDocument || displayedText != text else { return }
         let origin = contentView.bounds.origin
         let selections = minutesTextView.selectedRanges
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 5
-        minutesTextView.textStorage?.setAttributedString(NSAttributedString(string: text, attributes: [
-            .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
-            .foregroundColor: NSColor.textColor,
-            .paragraphStyle: paragraph
-        ]))
+        let rendered = MinutesMarkdownRenderer.render(text)
+        minutesTextView.textStorage?.setAttributedString(rendered)
         displayedDocumentID = documentID
         displayedText = text
         if changedDocument {
@@ -82,7 +77,7 @@ final class MinutesTextScrollView: NSScrollView {
             contentView.scroll(to: .zero)
             minutesTextView.scrollRangeToVisible(NSRange(location: 0, length: 0))
         } else {
-            let length = (text as NSString).length
+            let length = rendered.length
             minutesTextView.selectedRanges = selections.map { value in
                 let range = value.rangeValue
                 let start = min(range.location, length)
