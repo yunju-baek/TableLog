@@ -1,0 +1,4 @@
+module HwajaNative {
+    header "HwajaEngine.h"
+    export *
+}

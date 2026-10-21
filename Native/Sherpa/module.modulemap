@@ -1,0 +1,1 @@
+module SherpaVoice { header "c-api.h" export * }
