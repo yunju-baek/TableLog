@@ -48,7 +48,13 @@ enum MicrophoneCaptureError: LocalizedError {
 
 /// Main-thread start/stop API. Audio, level and error callbacks use processingQueue.
 /// stop's main-thread completion follows every audio callback, including the final tail.
-final class MicrophoneCapture {
+protocol MicrophoneCapturing: AnyObject {
+    func start(deviceID: AudioDeviceID?, onAudio: @escaping ([Float]) -> Void,
+               onLevel: @escaping (Float) -> Void, onError: @escaping (Error) -> Void) throws
+    func stop(completion: @escaping () -> Void)
+}
+
+final class MicrophoneCapture: MicrophoneCapturing {
     private let processingQueue = DispatchQueue(label: "kr.hwajanote.microphone.convert", qos: .userInitiated)
     private var currentSession: Session?
 

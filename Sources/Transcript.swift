@@ -1,6 +1,6 @@
 import Foundation
 
-enum AppPhase { case loading, ready, recording, finishing, completed, failed }
+enum AppPhase { case loading, ready, recording, paused, finishing, completed, failed }
 
 enum RecognitionProvider: String, CaseIterable, Codable {
     case local, gemini
@@ -143,7 +143,7 @@ struct SavedSpeaker: Codable {
 }
 
 struct TranscriptDocument: Encodable {
-    let schema_version = 14
+    let schema_version = 15
     let app = "테이블로그"
     let engine = "NVIDIA NeMo-Speech.cpp / Metal"
     let engine_revision = "6a3ca369370782acee0dd155e34394ba60b920c4"
@@ -161,6 +161,7 @@ struct TranscriptDocument: Encodable {
     let context: SavedContext
     let speakers: [SavedSpeaker]
     let segments: [SavedSegment]
+    var ended_at: String? = nil
     var transcript_edits: [TranscriptTextEdit]? = nil
     var manual_transcript_edits: [ManualTranscriptEdit]? = nil
     var meeting_materials: MaterialContext? = nil

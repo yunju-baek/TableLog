@@ -22,6 +22,7 @@ struct MeetingWorkRecord: Codable {
     var materials: MaterialContext? = nil
     var assistantAppendix: String? = nil
     var editedOutput: String? = nil
+    var endedAt: Date? = nil
     var input: MinutesGenerationInput {
         MinutesGenerationInput(segments: segments, purpose: purpose, relatedTopics: template.similarTopics,
                                speakerNames: Dictionary(uniqueKeysWithValues: names.map { (String($0.key), $0.value) }), materials: materials, title: title)
@@ -34,7 +35,7 @@ struct MeetingWorkRecord: Codable {
             if !people.contains(where: { $0.name == name }) { people.append(person) }
         }
         return MeetingMinutesSnapshot(sessionID:id,revision:revision,date:date,purpose:purpose,
-            confirmedParticipants:people,speakerBindings:speakers,utterances:segments,facts:facts,title:title)
+            confirmedParticipants:people,speakerBindings:speakers,utterances:segments,facts:facts,title:title,endedAt:endedAt)
     }
 }
 
@@ -186,17 +187,17 @@ struct MeetingWorkRecord: Codable {
             templates.removeAll {$0.id==template.id};templates.append(template);selectedID=template.id;error=nil
         } catch { self.error="템플릿 저장 실패 · 변수 이름과 저장 경로를 확인해 주세요. " + error.localizedDescription }
     }
-    func receive(id:UUID,title:String,date:Date,segments:[MeetingUtterance],names:[Int:String],ended:Bool,settings:CodexCorrectionSettings,force:Bool=false) {
+    func receive(id:UUID,title:String,date:Date,segments:[MeetingUtterance],names:[Int:String],ended:Bool,settings:CodexCorrectionSettings,force:Bool=false,endedAt:Date?=nil) {
         if sessionID != id { begin(id:id) }
         let now=Date()
         if !force && now.timeIntervalSince(lastTick)<1 { return };lastTick=now
         let formatter=DateFormatter();formatter.dateFormat="yyyy-MM-dd HH:mm:ss zzz"
         let encoder=JSONEncoder();encoder.outputFormatting=[.sortedKeys]
-        struct Signature:Encodable { let segments:[MeetingUtterance];let names:[Int:String];let bindings:MeetingSpeakerBindings;let template:MeetingTemplate;let purpose:String;let provider:MinutesProvider;let settings:CodexCorrectionSettings;let materials:MaterialContext;let assistantAppendix:String }
-        let signature=try? encoder.encode(Signature(segments:segments,names:names,bindings:bindings,template:selectedTemplate,purpose:purpose,provider:provider,settings:settings,materials:materialContext,assistantAppendix:assistantAppendix))
+        struct Signature:Encodable { let date:Date;let title:String;let ended:Bool;let endedAt:Date?;let segments:[MeetingUtterance];let names:[Int:String];let bindings:MeetingSpeakerBindings;let template:MeetingTemplate;let purpose:String;let provider:MinutesProvider;let settings:CodexCorrectionSettings;let materials:MaterialContext;let assistantAppendix:String }
+        let signature=try? encoder.encode(Signature(date:date,title:title,ended:ended,endedAt:endedAt,segments:segments,names:names,bindings:bindings,template:selectedTemplate,purpose:purpose,provider:provider,settings:settings,materials:materialContext,assistantAppendix:assistantAppendix))
         if signatures[id] != signature {
             let old=records[id]
-            records[id]=MeetingWorkRecord(id:id,revision:(old?.revision ?? 0)+1,savedRevision:old?.savedRevision ?? -1,date:formatter.string(from:date),title:title,purpose:purpose,template:selectedTemplate,bindings:bindings,names:names,segments:segments,ended:ended,provider:provider,settings:settings,output:old?.output,error:nil,updatedAt:now,materials:materialContext,assistantAppendix:assistantAppendix,editedOutput:old?.editedOutput)
+            records[id]=MeetingWorkRecord(id:id,revision:(old?.revision ?? 0)+1,savedRevision:old?.savedRevision ?? -1,date:formatter.string(from:date),title:title,purpose:purpose,template:selectedTemplate,bindings:bindings,names:names,segments:segments,ended:ended,provider:provider,settings:settings,output:old?.output,error:nil,updatedAt:now,materials:materialContext,assistantAppendix:assistantAppendix,editedOutput:old?.editedOutput,endedAt:endedAt)
             signatures[id]=signature
             persist(id)
             if old == nil { lastAttempt[id]=now }

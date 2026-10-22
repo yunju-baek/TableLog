@@ -38,7 +38,7 @@ actor MinutesCallLog {
         let legacy=MeetingTemplate(name:"기존 서식",markdown:"# 핵심 요약\n{{summary}}\n# 결정 사항\n| 결정 | 근거 시각 |\n{{decisions}}\n전사문:\n{{transcript}}",similarTopics:["예산"],participantCandidates:[person])
         let text=try MeetingMinutesRenderer.render(snapshot(facts),template:legacy)
         check(text.hasPrefix("# 사업 추진 회의"),"meeting title included")
-        check(text.contains("- 일자: 2026-10-21") && !text.contains("16:35:59"),"meeting date uses a date-only format")
+        check(text.contains("- 일시: 2026-10-21 16:30~16:40") && !text.contains("16:35:59"),"legacy meeting times use ten-minute boundaries")
         check(!text.contains("전사문") && !text.contains("원본 전사 고유 표식"),"legacy templates omit source transcript")
         check(!text.contains("00:42") && !text.contains("근거 시각"),"evidence remains internal")
         check(!text.contains("도우미 기록") && !text.contains("민감한 부록"),"raw assistant appendix omitted")
@@ -50,6 +50,20 @@ actor MinutesCallLog {
         var invalid=facts;invalid.summary=[.init(text:"근거 오류",evidenceIDs:[999])]
         do { _=try MeetingMinutesRenderer.render(snapshot(invalid),template:legacy);preconditionFailure("invalid evidence accepted") }
         catch { passed+=1;print("PASS: invalid evidence rejected") }
+        let iso = ISO8601DateFormatter()
+        func interval(_ start: String, _ end: String) -> String {
+            MeetingTimeDisplay.interval(start: start, end: iso.date(from: end)!)
+        }
+        check(interval("2026-10-22 10:52:25 GMT+9", "2026-10-22T11:45:00+09:00") == "2026-10-22 10:50~11:50", "start floors and end ceils to ten minutes")
+        check(interval("2026-10-22 10:50:00 GMT+9", "2026-10-22T11:40:00+09:00") == "2026-10-22 10:50~11:40", "exact ten-minute boundaries stay exact")
+        check(interval("2026-10-22 10:59:59 GMT+9", "2026-10-22T11:40:01+09:00") == "2026-10-22 10:50~11:50", "end seconds trigger upward rounding")
+        check(interval("2026-10-22 23:56:00 GMT+9", "2026-10-23T00:03:00+09:00") == "2026-10-22 23:50~2026-10-23 00:10", "overnight meeting includes both dates")
+        check(interval("2026-12-31 23:41:00 GMT+9", "2026-12-31T23:59:00+09:00") == "2026-12-31 23:40~2027-01-01 00:00", "end rounding can cross a year boundary")
+        check(MeetingTimeDisplay.interval(start:"2026-10-22",end:nil) == "2026-10-22", "date-only legacy records retain known precision")
+        check(MeetingTimeDisplay.interval(start:"2026-10-22 10:52:25 GMT+9",end:nil,legacyDuration:3140) == "2026-10-22 10:50~11:50", "legacy end derives from audio duration")
+        let pausedSnapshot = MeetingMinutesSnapshot(sessionID:UUID(),revision:1,date:"2026-10-22 10:52:25 GMT+9",purpose:"",confirmedParticipants:[],speakerBindings:[:],utterances:speech,facts:facts,endedAt:iso.date(from:"2026-10-22T12:01:00+09:00"))
+        let pausedText = try MeetingMinutesRenderer.render(pausedSnapshot,template:legacy)
+        check(pausedText.contains("2026-10-22 10:50~12:10"), "meeting end uses wall clock including pauses instead of audio offsets")
         let input=MinutesGenerationInput(segments:speech,purpose:"",relatedTopics:[],speakerNames:["1":"김담당"],title:"사업 추진 회의")
         let payload=try MinutesGenerator.payload(input,segments:speech)
         check(!payload.contains("\"start\"") && !payload.contains("\"end\""),"audio clocks excluded from AI input")

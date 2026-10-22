@@ -37,6 +37,7 @@ struct MeetingHistorySnapshot {
     let context: ContextSettings
     let assistantState: AssistantState?
     let warnings: [String]
+    var endedAt: Date? = nil
 }
 
 struct MeetingHistoryError: LocalizedError {
@@ -171,6 +172,7 @@ enum MeetingHistoryReader {
         let id: UUID?
         let title: String?
         let started: String?
+        let ended: String?
         let saved: String?
         let duration: Double?
         let segments: [Segment]
@@ -181,13 +183,14 @@ enum MeetingHistoryReader {
         let assistant: AssistantState?
         let diagnostics: [String: String]?
         let audioPath: String?
-        enum CodingKeys: String, CodingKey { case session_id, title, started_at, saved_at, duration_seconds, segments, speakers, context, meeting_materials, meeting_minutes, meeting_assistant, audio_file, diagnostics }
+        enum CodingKeys: String, CodingKey { case session_id, title, started_at, ended_at, saved_at, duration_seconds, segments, speakers, context, meeting_materials, meeting_minutes, meeting_assistant, audio_file, diagnostics }
         private struct Audio: Decodable { let path: String? }
         private struct Diagnostics: Decodable { let event_log: String?; let comparison: String? }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             id = (try? c.decode(String.self, forKey: .session_id)).flatMap(UUID.init(uuidString:))
             title = try? c.decode(String.self, forKey: .title); started = try? c.decode(String.self, forKey: .started_at); saved = try? c.decode(String.self, forKey: .saved_at)
+            ended = try? c.decode(String.self, forKey: .ended_at)
             duration = try? c.decode(Double.self, forKey: .duration_seconds)
             segments = (try? c.decode([Lossy<Segment>].self, forKey: .segments))?.compactMap(\.value) ?? []
             let indexOnly = decoder.userInfo[.historyIndexOnly] as? Bool == true
@@ -204,15 +207,17 @@ enum MeetingHistoryReader {
         let date: String?
         let purpose: String?
         let updatedAt: Date?
+        let endedAt: Date?
         let segments: [Segment]
         let names: [Int: String]
         let materials: Materials?
         let output: String?
         let editedOutput: String?
-        enum CodingKeys: String, CodingKey { case id, title, date, purpose, updatedAt, segments, names, materials, output, editedOutput }
+        enum CodingKeys: String, CodingKey { case id, title, date, purpose, updatedAt, endedAt, segments, names, materials, output, editedOutput }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             id = try? c.decode(UUID.self, forKey: .id); title = try? c.decode(String.self, forKey: .title); date = try? c.decode(String.self, forKey: .date)
+            endedAt = try? c.decode(Date.self, forKey: .endedAt)
             purpose = try? c.decode(String.self, forKey: .purpose); updatedAt = (try? c.decode(Date.self, forKey: .updatedAt)) ?? (try? c.decode(String.self, forKey: .updatedAt)).flatMap(MeetingHistoryReader.date)
             segments = (try? c.decode([Lossy<Segment>].self, forKey: .segments))?.compactMap(\.value) ?? []
             names = (try? c.decode([Int: String].self, forKey: .names)) ?? [:]
@@ -435,7 +440,8 @@ enum MeetingHistoryReader {
         return MeetingHistorySnapshot(id: entry.id, title: title, date: meetingDate, duration: duration, segments: segments, names: names, materials: materials,
             record: record, markdown: markdown, audioURL: audioURL, transcriptURL: transcriptURL, recordURL: recordURL,
             diagnosticsURL: fileURL(transcript?.diagnostics?["event_log"]), comparisonURL: fileURL(transcript?.diagnostics?["comparison"]), minutesURL: minutesURL,
-            context: context, assistantState: assistant, warnings: warnings)
+            context: context, assistantState: assistant, warnings: warnings,
+            endedAt: transcript?.ended.flatMap(date) ?? recordDTO?.endedAt ?? record?.endedAt)
     }
 }
 

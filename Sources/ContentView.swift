@@ -113,6 +113,19 @@ struct ContentView: View {
                         }.buttonStyle(.plain).disabled(!model.canPrepareMeeting)
 
                         if model.canStop {
+                            if !model.processingFile {
+                                Button(action: model.togglePause) {
+                                    Label(model.pauseTransition ? "일시정지 중…" : model.pauseTitle,
+                                          systemImage: model.phase == .paused ? "play.fill" : "pause.fill")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .frame(maxWidth: .infinity).padding(.vertical, 11)
+                                        .foregroundStyle(violet)
+                                        .background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 11))
+                                }
+                                .buttonStyle(.plain).disabled(!model.canPause)
+                                .keyboardShortcut("p", modifiers: [.command, .shift])
+                                .help("같은 회의에서 녹음을 일시정지하거나 재개합니다. (⇧⌘P)")
+                            }
                             Button(action: model.stop) {
                                 Label("종료 · 저장", systemImage: "stop.fill")
                                     .font(.system(size: 14, weight: .semibold))
@@ -254,7 +267,7 @@ struct ContentView: View {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundStyle(violet)
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(model.phase == .recording ? "기록을 임시 저장했어요" : "기록이 저장되었어요")
+                                    Text(model.canStop ? "기록을 임시 저장했어요" : "기록이 저장되었어요")
                                         .font(.system(size: 12, weight: .medium))
                                     Text("Finder에서 열기")
                                         .font(.system(size: 11))
@@ -282,7 +295,7 @@ struct ContentView: View {
                         .buttonStyle(.plain)
                         .help(audioURL.path)
                         .accessibilityLabel("저장한 M4A 음성 열기")
-                    } else if model.phase == .recording || model.audioSaveStatus.contains("오류") {
+                    } else if model.canStop || model.audioSaveStatus.contains("오류") {
                         Label(model.audioSaveStatus, systemImage: "waveform")
                             .font(.system(size: 10)).foregroundStyle(AppTheme.muted)
                     }
@@ -391,7 +404,7 @@ struct ContentView: View {
                     HStack {
                         Text("마이크 입력")
                         Spacer()
-                        Text(model.phase == .recording ? "듣는 중" : "대기")
+                        Text(model.phase == .paused ? "일시정지" : model.phase == .recording ? "듣는 중" : "대기")
                     }
                     .font(.system(size: 10))
                     .foregroundStyle(AppTheme.muted)
@@ -769,6 +782,7 @@ struct ContentView: View {
         case .loading: return "준비 중"
         case .ready: return "대화 준비 완료"
         case .recording: return model.processingFile ? "파일 전사 중" : "녹음 중"
+        case .paused: return "녹음 일시정지"
         case .finishing: return "기록 정리 중"
         case .completed: return "저장 완료"
         case .failed: return "설정 확인"
@@ -778,6 +792,7 @@ struct ContentView: View {
     private var statusColor: Color {
         switch model.phase {
         case .recording: return AppTheme.rose
+        case .paused: return Color.orange
         case .failed: return Color(red: 0.68, green: 0.37, blue: 0.13)
         case .ready, .completed: return violet
         case .loading, .finishing: return AppTheme.muted.opacity(0.6)
@@ -789,6 +804,7 @@ struct ContentView: View {
         case .loading: return "잠시 후 대화를 기록할 수 있어요"
         case .ready, .completed: return model.meetingPrepared ? "회의 준비가 끝나면 녹음을 시작하세요" : "새 회의를 준비해 볼까요?"
         case .recording: return model.processingFile ? "음성을 읽고 있어요" : "첫 발언을 기다리고 있어요"
+        case .paused: return "녹음을 잠시 멈췄어요"
         case .finishing: return "마지막 발언을 정리하고 있어요"
         case .failed: return "입력과 설정을 확인해 주세요"
         }
@@ -799,6 +815,7 @@ struct ContentView: View {
         case .loading: return model.statusMessage
         case .ready, .completed: return "새 회의에서 자료·목적·참석자를 준비한 뒤 녹음을 시작하세요.\n녹음 중에도 회의자료를 추가할 수 있습니다."
         case .recording: return model.processingFile ? "음성에서 발언과 화자를 정리하고 있습니다." : "말씀하시면 화자와 함께 내용이 표시됩니다."
+        case .paused: return "녹음 재개를 누르면 같은 회의에 이어서 기록합니다."
         case .finishing: return "정리가 끝나면 대화 기록이 자동으로 저장됩니다."
         case .failed: return "위 안내를 확인한 뒤 다시 준비해 주세요."
         }

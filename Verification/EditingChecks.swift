@@ -2,6 +2,26 @@ import Foundation
 import AppKit
 import SwiftUI
 import Combine
+import CoreAudio
+import AVFoundation
+
+final class ControlledMicrophone: MicrophoneCapturing {
+    var starts = 0
+    var automaticallyDrain = false
+    var failStart = false
+    var pendingStops: [() -> Void] = []
+    var level: ((Float) -> Void)?
+    func start(deviceID: AudioDeviceID?, onAudio: @escaping ([Float]) -> Void,
+               onLevel: @escaping (Float) -> Void, onError: @escaping (Error) -> Void) throws {
+        if failStart { throw MicrophoneCaptureError.inputUnavailable }
+        starts += 1; level = onLevel
+    }
+    func stop(completion: @escaping () -> Void) {
+        pendingStops.append(completion)
+        if automaticallyDrain { DispatchQueue.main.async { self.drain() } }
+    }
+    func drain() { let pending = pendingStops; pendingStops = []; pending.forEach { $0() } }
+}
 
 @main struct EditingChecks {
     @MainActor static func main() async throws {
@@ -21,12 +41,18 @@ import Combine
             chunks:[.init(id:"c1",location:"1쪽",text:"과목명은 인공 지능 기초다."),.init(id:"c2",location:"2쪽",text:"모집 인원은 30명이다.")],warnings:[])
         try JSONEncoder().encode([original]).write(to:materialRoot.appendingPathComponent("library.json"))
         let materials=MeetingMaterials(root:materialRoot)
+        let previewMicrophone = ControlledMicrophone()
+        previewMicrophone.automaticallyDrain = true
         let model=AppModel(materials:materials,meeting:minutes,
             assistant:MeetingAssistant(directory:root.appendingPathComponent("Assistant"),defaults:defaults),loadEngine:false,
             voice:VoiceIdentity(root:root.appendingPathComponent("Voice")),
             history:MeetingHistoryStore(transcripts:root.appendingPathComponent("Transcripts"),minutes:root.appendingPathComponent("Minutes")),
-            transcriptDirectory:root.appendingPathComponent("Transcripts"),startBackgroundServices:false,preferences:defaults)
+            transcriptDirectory:root.appendingPathComponent("Transcripts"),startBackgroundServices:false,preferences:defaults,microphone:previewMicrophone)
         model.loadEditingFixture()
+        if CommandLine.arguments.contains("--preview-recording") {
+            try model.loadRecordingFixture(directory: root.appendingPathComponent("PreviewAudio"))
+            showPreview(model); return
+        }
         if CommandLine.arguments.contains("--preview") { showPreview(model);return }
         var passed=0
         func check(_ condition:Bool,_ name:String) { if !condition { fatalError("FAIL: "+name) };passed += 1; print("PASS: "+name) }
@@ -241,6 +267,75 @@ import Combine
         await guardedStore.requireRevision(pending.revision+1,for:pending.id)
         do { _=try await guardedStore.save(pending.snapshot(facts:facts),template:pending.template);fatalError("Obsolete generation accepted") }
         catch { check(true,"edit revision barrier rejects obsolete generation") }
+        let microphone = ControlledMicrophone()
+        let captureModel = AppModel(materials: materials,
+            meeting: MeetingWorkspace(directory: root.appendingPathComponent("CaptureMinutes"), defaults: defaults),
+            assistant: MeetingAssistant(directory: root.appendingPathComponent("CaptureAssistant"), defaults: defaults), loadEngine: false,
+            voice: VoiceIdentity(root: root.appendingPathComponent("CaptureVoice")),
+            history: MeetingHistoryStore(transcripts: root.appendingPathComponent("CaptureTranscripts"), minutes: root.appendingPathComponent("CaptureMinutes")),
+            transcriptDirectory: root.appendingPathComponent("CaptureTranscripts"), startBackgroundServices: false,
+            preferences: defaults, microphone: microphone)
+        captureModel.meeting.generateOnFinish = false
+        try captureModel.loadRecordingFixture(directory: root.appendingPathComponent("CaptureAudio"))
+        let captureBefore = captureModel.captureFixture
+        let speechBefore = captureModel.segments
+        captureModel.appendCaptureFixture()
+        for _ in 0..<100 where captureModel.captureFixture.seconds < 1 { try await Task.sleep(for: .milliseconds(10)) }
+        check(captureModel.canPause && microphone.starts == 1, "microphone capture is ready to pause")
+        captureModel.pauseRecording(); captureModel.pauseRecording(); captureModel.resumeRecording()
+        check(captureModel.phase == .paused && captureModel.pauseTransition && microphone.pendingStops.count == 1 && microphone.starts == 1,
+              "pause drains once and blocks premature or duplicate resume")
+        check(captureModel.canStop && captureModel.isBusy && !captureModel.canStart && !captureModel.canGenerateMinutes,
+              "paused meeting allows stop and keeps new-session and generation guards")
+        microphone.level?(0.9)
+        try await Task.sleep(for: .milliseconds(20))
+        check(captureModel.inputLevel == 0, "queued input meter events stay silent during pause")
+        microphone.drain()
+        check(captureModel.canPause && !captureModel.pauseTransition && captureModel.captureFixture.end == nil,
+              "pause completes without marking the meeting ended")
+        captureModel.syncMeetingMinutes(force: true)
+        check(captureModel.meeting.metadata?.ended == false, "pause does not trigger end-of-meeting generation")
+        let pausedJSON = try JSONSerialization.jsonObject(with: Data(contentsOf: captureModel.lastSavedURL!)) as! [String:Any]
+        check(pausedJSON["status"] as? String == "in_progress" && pausedJSON["ended_at"] == nil,
+              "paused transcript persists as an ongoing meeting")
+        captureModel.resumeRecording(); captureModel.resumeRecording()
+        check(captureModel.phase == .recording && microphone.starts == 2 && captureModel.captureFixture.id == captureBefore.id && captureModel.segments == speechBefore,
+              "resume preserves session identity and transcript and starts only once")
+        check(captureModel.captureFixture.path == captureBefore.path && captureModel.captureFixture.seconds == 1,
+              "resume reuses the same audio file with no pause samples")
+        captureModel.appendCaptureFixture()
+        for _ in 0..<100 where captureModel.captureFixture.seconds < 2 { try await Task.sleep(for: .milliseconds(10)) }
+        check(captureModel.captureFixture.seconds == 2, "resumed audio appends to the existing recording")
+        captureModel.processingFile = true; captureModel.pauseRecording()
+        check(captureModel.phase == .recording && !captureModel.canPause, "file transcription keeps its own stop flow")
+        captureModel.processingFile = false
+        captureModel.pauseRecording(); captureModel.stop()
+        let capturedEnd = captureModel.captureFixture.end
+        check(captureModel.phase == .finishing && capturedEnd != nil && microphone.pendingStops.count == 2,
+              "stop during pause drain fixes the wall-clock meeting end")
+        microphone.drain()
+        for _ in 0..<100 where captureModel.phase == .finishing { try await Task.sleep(for: .milliseconds(10)) }
+        // This fixture has no native ASR engine, so finalization takes the preserved-data error path.
+        check(captureModel.phase == .failed && captureModel.captureFixture.end == capturedEnd && captureModel.savedAudioURL != nil,
+              "finalization failure preserves audio and the original stop time")
+        let stoppedJSON = try JSONSerialization.jsonObject(with: Data(contentsOf: captureModel.lastSavedURL!)) as! [String:Any]
+        check(stoppedJSON["ended_at"] as? String != nil, "wall-clock end persists independently of audio duration")
+        let captureHistory = MeetingHistoryReader.scan(transcripts: root.appendingPathComponent("CaptureTranscripts"), minutes: root.appendingPathComponent("CaptureMinutes"))
+        let restoredCapture = try MeetingHistoryReader.load(captureHistory.items[0])
+        check(restoredCapture.endedAt != nil && abs(restoredCapture.endedAt!.timeIntervalSince(capturedEnd!)) < 1,
+              "history restores actual end time including pause elapsed time")
+        captureModel.phase = .paused; microphone.failStart = true
+        captureModel.resumeRecording()
+        check(captureModel.phase == .finishing && captureModel.errorMessage != nil, "resume device failure follows the save-and-finish path")
+        microphone.drain()
+        for _ in 0..<100 where captureModel.phase == .finishing { try await Task.sleep(for: .milliseconds(10)) }
+        captureModel.phase = .paused
+        var quitFinished = false
+        captureModel.prepareToQuit { quitFinished = true }
+        check(captureModel.phase == .finishing && !captureModel.canPause, "quit from pause finishes the same capture")
+        microphone.drain()
+        for _ in 0..<200 where !quitFinished { try await Task.sleep(for: .milliseconds(10)) }
+        check(quitFinished, "quit from pause drains and releases engine resources")
         print("RESULT: \(passed) checks passed")
         if CommandLine.arguments.contains("--live-all") {
             var failures=0

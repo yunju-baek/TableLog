@@ -1,5 +1,16 @@
 #if TABLELOG_VERIFICATION
 extension AppModel {
+    func loadRecordingFixture(directory: URL) throws {
+        loadEditingFixture()
+        endedAt = nil; startedAt = Date().addingTimeInterval(-3_600)
+        audioRecorder = try SessionAudioRecorder(directory: directory, sessionID: session)
+        phase = .paused; resumeRecording()
+    }
+    var captureFixture: (id: UUID, end: Date?, seconds: Double, path: URL?) {
+        (session, endedAt, audioRecorder?.capturedSeconds ?? 0, audioRecorder?.recordingURL)
+    }
+    func appendCaptureFixture() { audioRecorder?.append(Array(repeating: 0.1, count: 16_000)) }
+
     func loadEditingFixture(reprocessing: Bool = false) {
         phase = .completed
         statusMessage = "편집 화면 확인용 예시 회의"

@@ -53,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             CommandMenu("전사") {
                 Button("새 회의", action: model.newMeeting).keyboardShortcut("n", modifiers: [.command]).disabled(!model.canPrepareMeeting)
                 Button("녹음 시작", action: model.start).keyboardShortcut("r", modifiers: [.command]).disabled(!model.canStart || !model.meetingPrepared)
+                Button(model.pauseTitle, action: model.togglePause).keyboardShortcut("p", modifiers: [.command, .shift]).disabled(!model.canPause)
                 Button("종료 · 저장", action: model.stop).keyboardShortcut(".", modifiers: [.command]).disabled(!model.canStop)
                 Divider()
                 Button("발언 복사", action: model.copyTranscript).disabled(!model.canExport)

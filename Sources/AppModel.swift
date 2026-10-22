@@ -108,7 +108,8 @@ import UniformTypeIdentifiers
     var canChangeRecognitionProvider: Bool { !closing && !isBusy }
 
     private let worker = EngineWorker()
-    private let microphone = MicrophoneCapture()
+    private let microphone: any MicrophoneCapturing
+    @Published private(set) var pauseTransition = false
     @Published private(set) var codexSettings = CodexCorrectionSettings() { didSet { cachedEditedTexts=nil; cachedManualProjection=nil } }
     @Published private(set) var codexAuthStatus = "로그인 상태 확인 중"
     @Published private(set) var codexLoginRunning = false
@@ -127,6 +128,7 @@ import UniformTypeIdentifiers
     private var appliedASRTerms: [String] = []
     private var session = UUID()
     private var startedAt = Date()
+    private var endedAt: Date?
     private var sourceName = "microphone"
     private var pendingFailure: String?
     private var finalStatus = "completed"
@@ -140,9 +142,12 @@ import UniformTypeIdentifiers
     private var filePanelRequested = false
 
     var canStart: Bool { !closing && !voice.recording && !voice.busy && (phase == .ready || phase == .completed) }
-    var canStop: Bool { phase == .recording }
+    var canStop: Bool { phase == .recording || phase == .paused }
+    var canPause: Bool { !closing && !processingFile && canStop && !pauseTransition }
+    var pauseTitle: String { phase == .paused ? "녹음 재개" : "일시정지" }
+    func togglePause() { if phase == .paused { resumeRecording() } else { pauseRecording() } }
     var canExport: Bool { !liveText.isEmpty || !segments.isEmpty }
-    var isBusy: Bool { phase == .loading || phase == .recording || phase == .finishing }
+    var isBusy: Bool { phase == .loading || canStop || phase == .finishing }
     var speakerCount: Int { Set(segments.map(effectiveSpeaker).filter { $0 > 0 }).count }
 
     func enteredSpeakerName(for speaker: Int) -> String { speakerNames[speaker] ?? "" }
@@ -170,7 +175,7 @@ import UniformTypeIdentifiers
         // Names belong to this session; inference snapshots only update acoustic labels.
         if canExport {
             do {
-                let status = phase == .recording || phase == .finishing ? "in_progress" : finalStatus
+                let status = canStop || phase == .finishing ? "in_progress" : finalStatus
                 lastSavedURL = try SessionFiles.write(document(status: status), to: sessionDocumentURL)
                 lastDraftAt = Date()
             } catch { errorMessage = "화자 이름 저장 경로를 확인해 주세요. " + error.localizedDescription }
@@ -181,7 +186,8 @@ import UniformTypeIdentifiers
          assistant requestedAssistant: MeetingAssistant? = nil, loadEngine: Bool = true,
          voice requestedVoice: VoiceIdentity? = nil, history requestedHistory: MeetingHistoryStore? = nil,
          transcriptDirectory: URL? = nil, startBackgroundServices: Bool = true,
-         preferences: UserDefaults = .standard) {
+         preferences: UserDefaults = .standard, microphone: any MicrophoneCapturing = MicrophoneCapture()) {
+        self.microphone = microphone
         self.preferences = preferences
         self.voice = requestedVoice ?? VoiceIdentity()
         self.history = requestedHistory ?? MeetingHistoryStore()
@@ -272,7 +278,7 @@ import UniformTypeIdentifiers
     }
 
     func reloadEngine() {
-        guard phase != .recording && phase != .finishing else { return }
+        guard !canStop && phase != .finishing else { return }
         phase = .loading; errorMessage = nil
         statusMessage = "한국어 음성 모델을 준비하고 있습니다."
         worker.load(lowLatency: lowLatency, tuning: engineSettings) { [weak self] result in
@@ -319,7 +325,7 @@ import UniformTypeIdentifiers
         localSnapshot = nil; cloudFailure = nil; cloudInputFinal = false; stoppedByUser = false
         session = UUID(); reconcilingVoiceNames = true
         voice.reset(session: session); voiceNameAssignments = VoiceNameAssignments()
-        reconcilingVoiceNames = false; startedAt = Date(); sourceName = source
+        reconcilingVoiceNames = false; startedAt = Date(); endedAt = nil; pauseTransition = false; sourceName = source
         meeting.begin(id: session)
         sessionTitle = title; segments = []; liveText = ""; audioSeconds = 0
         speakerNames = [:]; speakerIDs = []
@@ -368,35 +374,57 @@ import UniformTypeIdentifiers
             switch result {
             case .failure(let error): self.fail(error)
             case .success:
-                do {
-                    try self.microphone.start(deviceID: self.selectedDeviceID == 0 ? nil : self.selectedDeviceID,
-                        onAudio: { [weak self, worker = self.worker, recorder = self.audioRecorder] samples in
-                            recorder?.append(samples)
-                            let accepted = worker.submit(samples, session: id, onSnapshot: { snapshot in
-                                guard let self, self.session == id else { return }
-                                self.apply(snapshot)
-                            }, onError: { error in
-                                guard let self, self.session == id else { return }
-                                self.stopAfterFailure(error)
-                            })
-                            if !accepted {
-                                DispatchQueue.main.async {
-                                    self?.stopAfterFailure(AppFailure(message: "음성 처리 대기가 8초를 초과했습니다. 현재까지의 발언을 저장합니다. 다른 작업을 줄이거나 빠른 응답 설정을 꺼 주세요."))
-                                }
-                            }
-                        }, onLevel: { [weak self] level in
-                            DispatchQueue.main.async { if self?.session == id { self?.inputLevel = Double(level) } }
-                        }, onError: { [weak self] error in
-                            DispatchQueue.main.async { if self?.session == id { self?.stopAfterFailure(error) } }
-                        })
-                    self.phase = .recording; self.statusMessage = "듣고 있습니다 · 발언과 화자를 실시간으로 정리합니다."
-                } catch {
-                    self.pendingFailure = error.localizedDescription
-                    self.phase = .recording
-                    self.stop()
-                }
+                do { try self.startMicrophoneInput() }
+                catch { self.pendingFailure = error.localizedDescription; self.phase = .recording; self.stop() }
             }
         }
+    }
+
+    private func startMicrophoneInput() throws {
+        let id = session
+        try microphone.start(deviceID: selectedDeviceID == 0 ? nil : selectedDeviceID,
+            onAudio: { [weak self, worker = worker, recorder = audioRecorder] samples in
+                recorder?.append(samples)
+                let accepted = worker.submit(samples, session: id, onSnapshot: { snapshot in
+                    guard let self, self.session == id else { return }
+                    self.apply(snapshot)
+                }, onError: { error in
+                    guard let self, self.session == id else { return }
+                    self.stopAfterFailure(error)
+                })
+                if !accepted {
+                    DispatchQueue.main.async {
+                        self?.stopAfterFailure(AppFailure(message: "음성 처리 대기가 8초를 초과했습니다. 현재까지의 발언을 저장합니다. 다른 작업을 줄이거나 빠른 응답 설정을 꺼 주세요."))
+                    }
+                }
+            }, onLevel: { [weak self] level in
+                DispatchQueue.main.async { if self?.session == id, self?.phase == .recording { self?.inputLevel = Double(level) } }
+            }, onError: { [weak self] error in
+                DispatchQueue.main.async { if self?.session == id { self?.stopAfterFailure(error) } }
+            })
+        phase = .recording
+        statusMessage = "듣고 있습니다 · 발언과 화자를 실시간으로 정리합니다."
+    }
+
+    func pauseRecording() {
+        guard canPause, phase == .recording else { return }
+        phase = .paused; pauseTransition = true; inputLevel = 0
+        statusMessage = "일시정지 중 · 마지막 음성을 정리합니다."
+        let id = session
+        microphone.stop { [weak self] in
+            guard let self, self.session == id else { return }
+            self.pauseTransition = false
+            guard self.phase == .paused else { return }
+            self.inputLevel = 0
+            self.statusMessage = "녹음 일시정지 · 재개하면 같은 회의에 이어서 기록합니다."
+            self.persistCurrentTranscript()
+        }
+    }
+
+    func resumeRecording() {
+        guard canPause, phase == .paused else { return }
+        do { try startMicrophoneInput() }
+        catch { stopAfterFailure(error) }
     }
 
     private func apply(_ snapshot: EngineSnapshot) {
@@ -446,7 +474,8 @@ import UniformTypeIdentifiers
     }
 
     func stop() {
-        guard phase == .recording else { return }
+        guard canStop else { return }
+        if !processingFile { endedAt = Date() }
         phase = .finishing; statusMessage = "마지막 발언과 화자를 정리하고 저장합니다."
         if processingFile { worker.cancelFile(); return }
         let id = session
@@ -463,9 +492,9 @@ import UniformTypeIdentifiers
     }
 
     private func stopAfterFailure(_ error: Error) {
-        guard phase == .recording || phase == .finishing else { return }
+        guard canStop || phase == .finishing else { return }
         pendingFailure = error.localizedDescription; errorMessage = pendingFailure
-        if phase == .recording { stop() }
+        if canStop { stop() }
     }
 
     func importAudio() {
@@ -537,6 +566,7 @@ import UniformTypeIdentifiers
 
     private func complete(_ snapshot: EngineSnapshot, stopped: Bool) {
         apply(snapshot); inputLevel = 0; queuedSeconds = 0
+        if endedAt == nil { endedAt = processingFile ? startedAt.addingTimeInterval(audioSeconds) : Date() }
         finishAudioRecording()
         stoppedByUser = stopped
         cloudInputFinal = true
@@ -574,6 +604,7 @@ import UniformTypeIdentifiers
     }
 
     private func fail(_ error: Error, preserve: Bool = false) {
+        if endedAt == nil { endedAt = processingFile ? startedAt.addingTimeInterval(audioSeconds) : Date() }
         finishAudioRecording()
         debugRecorder?.recordFailure(message: error.localizedDescription, detailsJSON: "{\"source\":\"audio_pipeline\"}")
         finishDebugRecording()
@@ -614,6 +645,8 @@ import UniformTypeIdentifiers
         value.meeting_materials = materials.context
         value.voice_identity = voice.export
         value.voice_name_assignments = voiceNameAssignments.export
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        value.ended_at = endedAt.map(iso.string(from:))
         value.meeting_minutes = meeting.metadata
         if assistant.state.sessionID == session { value.meeting_assistant = assistant.state }
         value.speaker_reviews = speakerReviewRecords
@@ -682,7 +715,7 @@ import UniformTypeIdentifiers
                     return
                 }
                 do {
-                    let status = self.phase == .recording || self.phase == .finishing ? "in_progress" : self.finalStatus
+                    let status = self.canStop || self.phase == .finishing ? "in_progress" : self.finalStatus
                     self.lastSavedURL = try SessionFiles.write(self.document(status: status), to: url)
                 } catch { self.errorMessage = error.localizedDescription }
             }
@@ -709,16 +742,16 @@ import UniformTypeIdentifiers
         if cloudTask != nil { cloudFailure = "앱 종료 · 로컬 초안과 수신한 Gemini 결과 보존" }
         cancelCloud()
         cancelCorrections()
-        if phase != .recording && phase != .finishing { finishAudioRecording(); finishDebugRecording() }
+        if !canStop && phase != .finishing { finishAudioRecording(); finishDebugRecording() }
         persistCurrentTranscript()
         if phase == .finishing && cloudInputFinal {
             quitCompletion = completion
             finalizeSession()
             return
         }
-        if phase == .recording || phase == .finishing {
+        if canStop || phase == .finishing {
             quitCompletion = completion
-            if phase == .recording { stop() }
+            if canStop { stop() }
         } else { shutdownEngines(completion) }
     }
     private func finishQuitIfNeeded() {
@@ -846,7 +879,7 @@ import UniformTypeIdentifiers
         guard canExport else { return true }
         syncMeetingMinutes(force: true)
         do {
-            let status = phase == .recording || phase == .finishing ? "in_progress" : finalStatus
+            let status = canStop || phase == .finishing ? "in_progress" : finalStatus
             lastSavedURL = try SessionFiles.write(document(status: status), to: sessionDocumentURL)
             lastDraftAt = Date()
             return true
@@ -1077,7 +1110,7 @@ import UniformTypeIdentifiers
     }
 
     private func checkAudioRecording() {
-        guard phase == .recording, audioFailure == nil, let recorder = audioRecorder else { return }
+        guard canStop, audioFailure == nil, let recorder = audioRecorder else { return }
         do { try recorder.checkError() }
         catch {
             audioFailure = error.localizedDescription; audioFileStatus = "failed"
@@ -1493,7 +1526,7 @@ extension AppModel {
         meeting.receive(id: session, title: sessionTitle, date: startedAt,
             segments: visibleSegments.map { MeetingUtterance(id: $0.id, speaker: effectiveSpeaker($0), start: $0.startTime, end: $0.endTime, text: displayedText(for: $0)) },
             names: speakerNames, ended: closing || phase == .completed || phase == .failed,
-            settings: codexSettings, force: force)
+            settings: codexSettings, force: force, endedAt: endedAt)
     }
     func bindMeetingContact(_ person: MeetingPerson, speaker: Int) {
         guard speakerIDs.contains(speaker) else { return }
@@ -1674,11 +1707,11 @@ extension AppModel {
             date:dateFormat.string(from:snapshot.date),title:sessionTitle,purpose:source?.purpose ?? snapshot.context.topic,
             template:source?.template ?? meeting.selectedTemplate,bindings:bindings,names:snapshot.names,
             segments:snapshot.segments,ended:true,provider:source?.provider ?? meeting.provider,
-            settings:codexSettings,output:nil,error:nil,updatedAt:Date(),materials:materials.context)
+            settings:codexSettings,output:nil,error:nil,updatedAt:Date(),materials:materials.context,endedAt:snapshot.endedAt ?? snapshot.date.addingTimeInterval(snapshot.duration))
         guard meeting.openReprocessing(record:record) else {
             errorMessage="재가공본의 저장 위치를 확인해 주세요.";return false
         }
-        startedAt=snapshot.date
+        startedAt=snapshot.date; endedAt=record.endedAt
         reprocessingOrigin=MeetingReprocessingOrigin(sourceSessionID:snapshot.id,sourceTitle:snapshot.title,
             sourceTranscriptPath:snapshot.transcriptURL?.path,sourceRecordPath:snapshot.recordURL?.path,
             sourceMinutesPath:snapshot.minutesURL?.path,createdAt:Date())
