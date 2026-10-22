@@ -8,6 +8,7 @@ struct MeetingAssistantView: View {
     @ObservedObject var assistant: MeetingAssistant
     @ObservedObject var chat: MeetingEditingChat
     var provider: AITextProvider = .codex
+    @AppStorage("assistant.fontStep") private var fontStep = 1
     @State private var question = ""
     @State private var showSummary = false
     @State private var sheet: AssistantPanelSheet?
@@ -38,7 +39,7 @@ struct MeetingAssistantView: View {
                         VStack(alignment: .leading, spacing: 16) {
                             status; agendaAndSummary; decisionsAndQuestions; suggestions
                         }.padding(.top, 8)
-                    }.font(.caption)
+                    }.assistantFont(11)
                     EditingConversationView(chat: chat)
                     Color.clear.frame(height: 1).id("editing-end")
                 }.padding(16)
@@ -49,6 +50,7 @@ struct MeetingAssistantView: View {
             Divider()
             questionComposer
         }
+        .assistantFont(13)
         .frame(minWidth: 340, idealWidth: 370, maxWidth: 430, maxHeight: .infinity)
         .background(AppTheme.paper)
         .foregroundStyle(AppTheme.ink)
@@ -64,48 +66,69 @@ struct MeetingAssistantView: View {
                 AssistantHistoryView(assistant: assistant) { sheet = nil }
             }
         }
+        .environment(\.assistantFontStep, fontStep)
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles").foregroundStyle(AppTheme.rose)
-                Text("회의 편집").font(.system(size: 16, weight: .bold))
+                Text("회의 편집").assistantFont(16, weight: .bold)
                 Spacer(minLength: 4)
+                Button { fontStep = AssistantTextSize.clamped(fontStep) - 1 } label: {
+                    Text("가−").font(.system(size: 12, weight: .semibold)).frame(width: 28, height: 28)
+                }.disabled(AssistantTextSize.clamped(fontStep) == AssistantTextSize.range.lowerBound)
+                    .help("글자 작게").accessibilityLabel("AI 도움창 글자 작게")
+                Button { fontStep = AssistantTextSize.clamped(fontStep) + 1 } label: {
+                    Text("가+").font(.system(size: 12, weight: .semibold)).frame(width: 28, height: 28)
+                }.disabled(AssistantTextSize.clamped(fontStep) == AssistantTextSize.range.upperBound)
+                    .help("글자 크게").accessibilityLabel("AI 도움창 글자 크게")
                 Button { sheet = .history } label: { Image(systemName: "clock.arrow.circlepath") }
                     .help("요약 변경·분석 기록").accessibilityLabel("회의 도우미 분석 기록")
                 Button { sheet = .settings } label: { Image(systemName: "slider.horizontal.3") }
                     .help("주기·모델 설정").accessibilityLabel("회의 도우미 설정")
             }.buttonStyle(.plain)
-            HStack {
-                Toggle("자동 요약·제안", isOn: $assistant.enabled)
-                    .toggleStyle(.switch).controlSize(.small).font(.caption)
-                Spacer(minLength: 8)
-                Button("지금 요약", action: assistant.requestSummary)
-                    .controlSize(.small).disabled(!hasMeeting)
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    automaticSummaryToggle.fixedSize()
+                    Spacer(minLength: 8)
+                    summarizeButton.fixedSize()
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    automaticSummaryToggle
+                    summarizeButton
+                }
             }
         }.padding(16).background(AppTheme.sidebar.opacity(0.58))
+    }
+    private var automaticSummaryToggle: some View {
+        Toggle("자동 요약·제안", isOn: $assistant.enabled)
+            .toggleStyle(.switch).controlSize(.regular).assistantFont(11)
+    }
+    private var summarizeButton: some View {
+        Button("지금 요약", action: assistant.requestSummary)
+            .controlSize(.regular).disabled(!hasMeeting)
     }
 
     private var status: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .top, spacing: 7) {
-                if assistant.busy { ProgressView().controlSize(.small) }
+                if assistant.busy { ProgressView().controlSize(.regular) }
                 else { Image(systemName: "circle.fill").font(.system(size: 6)).padding(.top, 4).foregroundStyle(AppTheme.rose) }
-                Text(assistant.status).font(.caption).fixedSize(horizontal: false, vertical: true)
+                Text(assistant.status).assistantFont(11).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
-                if assistant.busy { Button("취소", action: assistant.cancel).font(.caption) }
+                if assistant.busy { Button("취소", action: assistant.cancel).assistantFont(11) }
             }
             if assistant.state.updatedAt != nil && !assistant.status.contains("발언까지 반영") {
                 Text("\(assistantTime(assistant.state.coverageSeconds)) 발언까지 반영")
-                    .font(.caption.monospacedDigit()).foregroundStyle(AppTheme.violet)
+                    .assistantFont(11, design: .monospaced).foregroundStyle(AppTheme.violet)
             }
             Text("선택 자료 \(assistant.selectedMaterialCount)개 · 맥락 분석 완료 \(assistant.readyMaterialCount)개")
-                .font(.caption2).foregroundStyle(AppTheme.muted)
+                .assistantFont(10).foregroundStyle(AppTheme.muted)
             if let error = assistant.error {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(error).font(.caption).textSelection(.enabled)
-                    Button("분석 재시도", action: assistant.retry).controlSize(.small)
+                    Text(error).assistantFont(11).textSelection(.enabled)
+                    Button("분석 재시도", action: assistant.retry).controlSize(.regular)
                         .disabled(assistant.busy || !hasMeeting)
                 }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
                     .background(AppTheme.blush, in: RoundedRectangle(cornerRadius: 10))
@@ -118,11 +141,11 @@ struct MeetingAssistantView: View {
             VStack(alignment: .leading, spacing: 6) {
                 sectionTitle("현재 안건", symbol: "text.bubble")
                 Text(assistant.state.currentAgenda.isEmpty ? "회의 맥락을 기다리고 있어요" : assistant.state.currentAgenda)
-                    .font(.subheadline.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                    .assistantFont(13, weight: .semibold).fixedSize(horizontal: false, vertical: true)
             }
             if assistant.state.summary.isEmpty {
                 Text(hasMeeting ? "발언과 자료를 모아 핵심 내용을 정리합니다. ‘지금 요약’으로 바로 분석할 수 있어요." : "새 회의를 준비한 뒤 자료를 추가하고 녹음을 시작하세요.")
-                    .font(.caption).foregroundStyle(AppTheme.muted).lineSpacing(3)
+                    .assistantFont(11).foregroundStyle(AppTheme.muted).lineSpacing(5)
             } else {
                 ForEach(assistant.state.summary) { item in
                     itemRow(item, confirmable: false)
@@ -136,7 +159,7 @@ struct MeetingAssistantView: View {
             VStack(alignment: .leading, spacing: 10) {
                 sectionTitle("결정 후보·확인", symbol: "checkmark.seal")
                 Text("근거 발언을 확인한 뒤 결정으로 표시하세요.")
-                    .font(.caption2).foregroundStyle(AppTheme.muted)
+                    .assistantFont(10).foregroundStyle(AppTheme.muted)
                 ForEach(assistant.state.decisionCandidates) { item in itemRow(item, confirmable: true) }
             }.assistantCard()
         }
@@ -153,7 +176,7 @@ struct MeetingAssistantView: View {
             sectionTitle("지금 함께 생각할 점", symbol: "lightbulb")
             if visibleSuggestions.isEmpty {
                 Text("현재 논의에 필요한 질문·관련 자료·대안을 이곳에 제안합니다.")
-                    .font(.caption).foregroundStyle(AppTheme.muted).lineSpacing(3)
+                    .assistantFont(11).foregroundStyle(AppTheme.muted).lineSpacing(5)
             }
             ForEach(visibleSuggestions) { suggestion in suggestionCard(suggestion) }
             if !archivedSuggestions.isEmpty {
@@ -165,19 +188,19 @@ struct MeetingAssistantView: View {
                             } else {
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack {
-                                    Text(suggestionStatus(suggestion.status)).font(.caption2).foregroundStyle(AppTheme.rose)
+                                    Text(suggestionStatus(suggestion.status)).assistantFont(10).foregroundStyle(AppTheme.rose)
                                     Spacer()
                                     Button("다시 검토") { assistant.setSuggestionStatus(id: suggestion.id, status: .review) }
-                                        .font(.caption2)
+                                        .assistantFont(10)
                                 }
                                 Button { sheet = .evidence(suggestion.title, suggestion.evidence) } label: {
-                                    Text(suggestion.title).font(.caption).multilineTextAlignment(.leading)
+                                    Text(suggestion.title).assistantFont(11).multilineTextAlignment(.leading)
                                 }.buttonStyle(.plain)
                             }.padding(9).background(.white, in: RoundedRectangle(cornerRadius: 8))
                             }
                         }
                     }.padding(.top, 8)
-                }.font(.caption).foregroundStyle(AppTheme.muted)
+                }.assistantFont(11).foregroundStyle(AppTheme.muted)
             }
         }
     }
@@ -186,22 +209,22 @@ struct MeetingAssistantView: View {
         VStack(alignment: .leading, spacing: 8) {
             TextField("내용을 고치거나 질문해 보세요", text: $question, axis: .vertical)
                 .textFieldStyle(.roundedBorder).lineLimit(2...6)
-                .font(.callout).accessibilityLabel("회의 편집 요청")
+                .assistantFont(13).accessibilityLabel("회의 편집 요청")
             HStack(alignment: .center) {
-                Text("녹취 · 화자 · 회의록 · 자료").font(.system(size: 10)).foregroundStyle(AppTheme.muted)
+                Text("녹취 · 화자 · 회의록 · 자료").assistantFont(10).foregroundStyle(AppTheme.muted)
                 Spacer(minLength: 6)
                 if chat.busy {
                     Button { chat.cancel() } label: { Image(systemName: "stop.fill") }
                         .help("요청 중단").accessibilityLabel("편집 요청 중단")
                 } else {
                     Button(action: sendQuestion) { Image(systemName: "arrow.up") }
-                        .buttonStyle(.borderedProminent).controlSize(.small)
+                        .buttonStyle(.borderedProminent).controlSize(.regular)
                         .keyboardShortcut(.return, modifiers: .command)
                         .help("요청 보내기 · ⌘↩").accessibilityLabel("편집 요청 보내기")
                         .disabled(question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || question.count > 12_000)
                 }
             }
-            if question.count > 12_000 { Text("요청은 12,000자 이내로 입력하세요.").font(.caption2).foregroundStyle(AppTheme.rose) }
+            if question.count > 12_000 { Text("요청은 12,000자 이내로 입력하세요.").assistantFont(10).foregroundStyle(AppTheme.rose) }
         }.padding(14).background(.white.opacity(0.75))
     }
 
@@ -211,17 +234,17 @@ struct MeetingAssistantView: View {
                 Image(systemName: item.confirmed ? "checkmark.circle.fill" : "circle.fill")
                     .font(.system(size: item.confirmed ? 12 : 5))
                     .foregroundStyle(AppTheme.violet).padding(.top, item.confirmed ? 3 : 7)
-                Text(item.text).font(.callout).lineSpacing(3).textSelection(.enabled)
+                Text(item.text).assistantFont(13).lineSpacing(5).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 10) {
-                if item.stale { Label("근거 갱신 확인 중", systemImage: "arrow.triangle.2.circlepath").font(.caption2).foregroundStyle(AppTheme.rose) }
-                else if item.confirmed { Text("사용자 확인").font(.caption2).foregroundStyle(AppTheme.violet) }
+                if item.stale { Label("근거 갱신 확인 중", systemImage: "arrow.triangle.2.circlepath").assistantFont(10).foregroundStyle(AppTheme.rose) }
+                else if item.confirmed { Text("사용자 확인").assistantFont(10).foregroundStyle(AppTheme.violet) }
                 evidenceButton(title: item.text, evidence: item.evidence)
                 Spacer(minLength: 0)
                 if confirmable && !item.confirmed {
                     Button("결정 확인") { assistant.confirmDecision(id: item.id) }
-                        .font(.caption2).disabled(item.stale)
+                        .assistantFont(10).disabled(item.stale)
                 }
             }
         }
@@ -231,20 +254,20 @@ struct MeetingAssistantView: View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
                 Label(suggestionKind(item.kind), systemImage: suggestionSymbol(item.kind))
-                    .font(.caption.weight(.semibold)).foregroundStyle(AppTheme.violet)
+                    .assistantFont(11, weight: .semibold).foregroundStyle(AppTheme.violet)
                 Spacer()
-                if item.status == .review { Text("검토 목록").font(.caption2).foregroundStyle(AppTheme.rose) }
+                if item.status == .review { Text("검토 목록").assistantFont(10).foregroundStyle(AppTheme.rose) }
             }
             Button { sheet = .evidence(item.title, item.evidence) } label: {
-                Text(item.title).font(.subheadline.weight(.semibold)).multilineTextAlignment(.leading)
+                Text(item.title).assistantFont(13, weight: .semibold).multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }.buttonStyle(.plain).help("제안의 근거 확인")
-            Text(item.reason).font(.caption).foregroundStyle(AppTheme.muted).lineSpacing(3)
+            Text(item.reason).assistantFont(11).foregroundStyle(AppTheme.muted).lineSpacing(5)
             if !item.premise.isEmpty {
-                Text("확인할 전제 · \(item.premise)").font(.caption2).foregroundStyle(AppTheme.rose)
+                Text("확인할 전제 · \(item.premise)").assistantFont(10).foregroundStyle(AppTheme.rose)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if item.stale { Label("근거가 바뀌어 다시 검토합니다", systemImage: "arrow.triangle.2.circlepath").font(.caption2).foregroundStyle(AppTheme.rose) }
+            if item.stale { Label("근거가 바뀌어 다시 검토합니다", systemImage: "arrow.triangle.2.circlepath").assistantFont(10).foregroundStyle(AppTheme.rose) }
             evidenceButton(title: item.title, evidence: item.evidence)
             HStack(spacing: 6) {
                 if item.status == .review {
@@ -256,7 +279,7 @@ struct MeetingAssistantView: View {
                 Spacer(minLength: 0)
                 Button("나중에") { assistant.setSuggestionStatus(id: item.id, status: .deferred) }
                 Button("닫기") { assistant.setSuggestionStatus(id: item.id, status: .dismissed) }
-            }.font(.caption2).controlSize(.mini)
+            }.assistantFont(10).controlSize(.small)
         }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
             .background(.white, in: RoundedRectangle(cornerRadius: 12))
             .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 2).fill(AppTheme.rose.opacity(0.6)).frame(width: 3).padding(.vertical, 13) }
@@ -264,24 +287,24 @@ struct MeetingAssistantView: View {
 
     private func questionRow(_ item: AssistantQuestion) -> some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text(item.text).font(.callout.weight(.medium)).textSelection(.enabled)
+            Text(item.text).assistantFont(13, weight: .medium).textSelection(.enabled)
             if let answer = item.answer {
-                Text(answer).font(.callout).lineSpacing(3).textSelection(.enabled)
+                Text(answer).assistantFont(13).lineSpacing(5).textSelection(.enabled)
                 evidenceButton(title: "질문 답변의 근거", evidence: item.evidence)
                 if item.includedInMinutes == true {
                     Label("회의 메모에 추가됨", systemImage: "note.text.badge.plus")
-                        .font(.caption2).foregroundStyle(AppTheme.violet)
+                        .assistantFont(10).foregroundStyle(AppTheme.violet)
                 } else {
                     Button("회의 메모에 추가") { assistant.addQuestionToMinutes(id: item.id) }
-                        .font(.caption2).controlSize(.mini)
+                        .assistantFont(10).controlSize(.small)
                 }
             } else {
                 HStack(spacing: 6) {
-                    if item.status == "running" { ProgressView().controlSize(.mini) }
-                    Text(questionStatus(item.status)).font(.caption).foregroundStyle(AppTheme.muted)
+                    if item.status == "running" { ProgressView().controlSize(.small) }
+                    Text(questionStatus(item.status)).assistantFont(11).foregroundStyle(AppTheme.muted)
                 }
             }
-            if let error = item.error { Text(error).font(.caption2).foregroundStyle(AppTheme.rose) }
+            if let error = item.error { Text(error).assistantFont(10).foregroundStyle(AppTheme.rose) }
         }.padding(11).frame(maxWidth: .infinity, alignment: .leading)
             .background(AppTheme.lavender.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
     }
@@ -289,7 +312,7 @@ struct MeetingAssistantView: View {
     private func evidenceButton(title: String, evidence: [AssistantEvidence]) -> some View {
         Button { sheet = .evidence(title, evidence) } label: {
             Label("근거 \(evidence.count)개", systemImage: "quote.bubble")
-        }.font(.caption2).buttonStyle(.plain).foregroundStyle(AppTheme.violet)
+        }.assistantFont(10).buttonStyle(.plain).foregroundStyle(AppTheme.violet)
             .disabled(evidence.isEmpty)
     }
 
@@ -327,9 +350,9 @@ private struct AssistantSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("회의 도우미 설정").font(.title2.bold())
+            Text("회의 도우미 설정").assistantFont(17, weight: .bold)
             Text("선택한 발언과 관련 자료를 \(provider.title)로 분석합니다. CLI 선택과 공통 모델은 상단 AI 설정에서 변경할 수 있습니다.")
-                .font(.caption).foregroundStyle(AppTheme.muted).lineSpacing(3)
+                .assistantFont(11).foregroundStyle(AppTheme.muted).lineSpacing(5)
             GroupBox("갱신 주기") {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
@@ -340,7 +363,7 @@ private struct AssistantSettingsView: View {
                     Stepper("요약 · \(Int(summarySeconds))초", value: $summarySeconds, in: 30...600, step: 15)
                     Stepper("제안 검토 · \(Int(suggestionSeconds))초", value: $suggestionSeconds, in: 60...900, step: 30)
                     Text("새 발언이 쌓이면 설정한 주기에 분석을 요청합니다. 처리 시간에 따라 화면 반영 시점이 달라집니다.")
-                        .font(.caption2).foregroundStyle(AppTheme.muted)
+                        .assistantFont(10).foregroundStyle(AppTheme.muted)
                 }.padding(8)
             }
             if provider == .codex {
@@ -358,15 +381,15 @@ private struct AssistantSettingsView: View {
                         if !effort.isEmpty && !efforts.contains(effort) { Text(effort).tag(effort) }
                     }
                     HStack {
-                        Text("이 Mac의 모델 목록 · 계정별 사용 가능 범위 적용").font(.caption2).foregroundStyle(AppTheme.muted)
+                        Text("이 Mac의 모델 목록 · 계정별 사용 가능 범위 적용").assistantFont(10).foregroundStyle(AppTheme.muted)
                         Spacer()
-                        Button("목록 갱신") { options = CodexModelOption.cached() }.font(.caption)
+                        Button("목록 갱신") { options = CodexModelOption.cached() }.assistantFont(11)
                     }
                 }.padding(8)
             }
             }
             Text("설정은 다음 요청부터 적용됩니다. 분석 기록에서 모델·입력·처리 범위와 요약 변화를 확인할 수 있어요.")
-                .font(.caption).foregroundStyle(AppTheme.muted)
+                .assistantFont(11).foregroundStyle(AppTheme.muted)
             HStack {
                 Spacer()
                 Button("취소", action: dismiss).keyboardShortcut(.cancelAction)
@@ -396,13 +419,13 @@ private struct AssistantEvidenceView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("근거 확인").font(.title2.bold())
-                    Text(title).font(.callout).lineLimit(3)
+                    Text("근거 확인").assistantFont(17, weight: .bold)
+                    Text(title).assistantFont(13).lineLimit(3)
                 }
                 Spacer()
                 Button("닫기", action: dismiss).keyboardShortcut(.cancelAction)
             }
-            Text("분석에 사용한 시점의 발언과 자료 원문입니다.").font(.caption).foregroundStyle(AppTheme.muted)
+            Text("분석에 사용한 시점의 발언과 자료 원문입니다.").assistantFont(11).foregroundStyle(AppTheme.muted)
             Divider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 14) {
@@ -410,21 +433,21 @@ private struct AssistantEvidenceView: View {
                     ForEach(evidence) { item in
                         VStack(alignment: .leading, spacing: 10) {
                             Label(item.kind == "utterance" ? "회의 발언" : "참고 자료", systemImage: item.kind == "utterance" ? "waveform" : "doc.text")
-                                .font(.caption.weight(.semibold)).foregroundStyle(AppTheme.violet)
-                            Text(item.title).font(.headline)
-                            Text(item.location).font(.caption.monospacedDigit()).foregroundStyle(AppTheme.muted)
-                            Text(item.text).font(.callout).lineSpacing(4).textSelection(.enabled)
+                                .assistantFont(11, weight: .semibold).foregroundStyle(AppTheme.violet)
+                            Text(item.title).assistantFont(13, weight: .semibold)
+                            Text(item.location).assistantFont(11, design: .monospaced).foregroundStyle(AppTheme.muted)
+                            Text(item.text).assistantFont(13).lineSpacing(4).textSelection(.enabled)
                             HStack {
                                 if item.sourcePath != nil {
-                                    Button("원본 열기") { open(item) }.controlSize(.small)
+                                    Button("원본 열기") { open(item) }.controlSize(.regular)
                                 }
                                 if item.audioPath != nil {
                                     Button { play(item) } label: {
                                         Label(playingID == item.id ? "구간 처음부터 듣기" : "이 구간 듣기", systemImage: "play.circle")
-                                    }.controlSize(.small)
+                                    }.controlSize(.regular)
                                 }
                                 if playingID == item.id {
-                                    Button("정지") { player?.pause(); playingID = nil }.controlSize(.small)
+                                    Button("정지") { player?.pause(); playingID = nil }.controlSize(.regular)
                                 }
                                 Spacer()
                             }
@@ -433,13 +456,13 @@ private struct AssistantEvidenceView: View {
                                     Text(item.id)
                                     Text("버전 · \(item.fingerprint)")
                                     if let path = item.sourcePath { Text(path) }
-                                }.font(.system(size: 10, design: .monospaced)).textSelection(.enabled).padding(.top, 5)
-                            }.font(.caption2).foregroundStyle(AppTheme.muted)
+                                }.assistantFont(10, design: .monospaced).textSelection(.enabled).padding(.top, 5)
+                            }.assistantFont(10).foregroundStyle(AppTheme.muted)
                         }.assistantCard()
                     }
                 }.padding(.trailing, 6)
             }
-            if let playbackError { Text(playbackError).font(.caption).foregroundStyle(AppTheme.rose) }
+            if let playbackError { Text(playbackError).assistantFont(11).foregroundStyle(AppTheme.rose) }
         }.padding(24).frame(width: 700, height: 600).background(AppTheme.paper).tint(AppTheme.violet)
             .onDisappear { player?.pause(); player = nil }
     }
@@ -471,8 +494,8 @@ private struct AssistantHistoryView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("요약 변경·분석 기록").font(.title2.bold())
-                    Text("요청마다 입력 범위·사용 자료·모델과 결과를 함께 보관합니다.").font(.caption).foregroundStyle(AppTheme.muted)
+                    Text("요약 변경·분석 기록").assistantFont(17, weight: .bold)
+                    Text("요청마다 입력 범위·사용 자료·모델과 결과를 함께 보관합니다.").assistantFont(11).foregroundStyle(AppTheme.muted)
                 }
                 Spacer()
                 Button("기록 폴더", action: assistant.showDebugFolder)
@@ -488,9 +511,9 @@ private struct AssistantHistoryView: View {
                             ForEach(assistant.runs.reversed()) { run in
                                 Button { selectedID = run.id } label: {
                                     VStack(alignment: .leading, spacing: 5) {
-                                        Text(run.date.formatted(date: .omitted, time: .standard)).font(.caption.monospacedDigit())
-                                        Text(runKind(run.kind)).font(.callout.weight(.semibold))
-                                        Text("\(runStatus(run.status)) · \(assistantTime(run.coverageSeconds))까지").font(.caption2)
+                                        Text(run.date.formatted(date: .omitted, time: .standard)).assistantFont(11, design: .monospaced)
+                                        Text(runKind(run.kind)).assistantFont(13, weight: .semibold)
+                                        Text("\(runStatus(run.status)) · \(assistantTime(run.coverageSeconds))까지").assistantFont(10)
                                     }.frame(maxWidth: .infinity, alignment: .leading).padding(10)
                                         .background(selected?.id == run.id ? AppTheme.lavender : Color.white, in: RoundedRectangle(cornerRadius: 9))
                                 }.buttonStyle(.plain)
@@ -522,31 +545,31 @@ private struct AssistantHistoryView: View {
 
     private func runDetail(_ run: AssistantRunLog) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("\(runKind(run.kind)) · \(runStatus(run.status))").font(.headline)
+            Text("\(runKind(run.kind)) · \(runStatus(run.status))").assistantFont(13, weight: .semibold)
             Text("\(run.model.isEmpty ? "기본 모델" : run.model) · \(run.effort.isEmpty ? "기본 추론" : run.effort)")
-                .font(.caption).foregroundStyle(AppTheme.violet)
+                .assistantFont(11).foregroundStyle(AppTheme.violet)
             Text("\(assistantTime(run.coverageSeconds)) 발언까지 · \(String(format: "%.1f", run.elapsed))초")
-                .font(.caption.monospacedDigit()).foregroundStyle(AppTheme.muted)
-            if !run.message.isEmpty { Text(run.message).font(.caption).textSelection(.enabled) }
+                .assistantFont(11, design: .monospaced).foregroundStyle(AppTheme.muted)
+            if !run.message.isEmpty { Text(run.message).assistantFont(11).textSelection(.enabled) }
             summaryDiff(before: run.beforeSummary, after: run.afterSummary)
             jsonDisclosure("요청 입력 · 발언·자료·맥락", value: input)
             jsonDisclosure("모델 응답", value: output)
             jsonDisclosure("검증 결과", value: validation)
             Button("이 요청의 파일 위치") {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: run.folderPath)])
-            }.font(.caption)
+            }.assistantFont(11)
         }.textSelection(.enabled)
     }
 
     private func summaryDiff(before: String, after: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("요약 변화").font(.subheadline.weight(.semibold))
+            Text("요약 변화").assistantFont(13, weight: .semibold)
             HStack(alignment: .top, spacing: 12) {
                 diffColumn("이전 요약", text: before, comparison: after, color: AppTheme.rose)
                 diffColumn("새 요약", text: after, comparison: before, color: AppTheme.violet)
             }
             Text("색으로 표시한 문장은 비교 시점의 다른 요약에 포함된 문장과 차이가 있습니다.")
-                .font(.caption2).foregroundStyle(AppTheme.muted)
+                .assistantFont(10).foregroundStyle(AppTheme.muted)
         }
     }
 
@@ -554,10 +577,10 @@ private struct AssistantHistoryView: View {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
         let other = Set(comparison.split(separator: "\n", omittingEmptySubsequences: true).map(String.init))
         return VStack(alignment: .leading, spacing: 7) {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(color)
-            if lines.isEmpty { Text("기록 대기").font(.caption).foregroundStyle(AppTheme.muted) }
+            Text(title).assistantFont(11, weight: .semibold).foregroundStyle(color)
+            if lines.isEmpty { Text("기록 대기").assistantFont(11).foregroundStyle(AppTheme.muted) }
             ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                Text(line).font(.caption).lineSpacing(3).frame(maxWidth: .infinity, alignment: .leading)
+                Text(line).assistantFont(11).lineSpacing(5).frame(maxWidth: .infinity, alignment: .leading)
                     .padding(5).background(other.contains(line) ? Color.clear : color.opacity(0.09), in: RoundedRectangle(cornerRadius: 5))
             }
         }.padding(10).frame(maxWidth: .infinity, alignment: .topLeading)
@@ -567,9 +590,9 @@ private struct AssistantHistoryView: View {
     private func jsonDisclosure(_ title: String, value: String) -> some View {
         DisclosureGroup(title) {
             Text(value.isEmpty ? "기록을 읽고 있습니다." : value)
-                .font(.system(size: 10, design: .monospaced)).textSelection(.enabled)
+                .assistantFont(10, design: .monospaced).textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(10).background(.white)
-        }.font(.caption)
+        }.assistantFont(11)
     }
 }
 
@@ -582,7 +605,7 @@ private struct AssistantCardModifier: ViewModifier {
 private extension View { func assistantCard() -> some View { modifier(AssistantCardModifier()) } }
 
 private func sectionTitle(_ title: String, symbol: String) -> some View {
-    Label(title, systemImage: symbol).font(.caption.weight(.semibold)).foregroundStyle(AppTheme.violet)
+    Label(title, systemImage: symbol).assistantFont(11, weight: .semibold).foregroundStyle(AppTheme.violet)
 }
 private func assistantTime(_ value: Double) -> String {
     let seconds = Int(max(0, value.isFinite ? value : 0))

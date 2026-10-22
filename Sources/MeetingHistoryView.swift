@@ -18,6 +18,8 @@ struct MeetingHistoryView: View {
     @State private var detailRevision = 0
     @State private var tab = DetailTab.minutes
     @State private var actionError: String?
+    @State private var showingDeleted = false
+    @State private var pendingDelete: MeetingHistoryEntry?
 
     private enum DetailTab: String, CaseIterable, Identifiable {
         case minutes = "회의록", transcript = "전사", materials = "자료·맥락", assistant = "도우미 기록"
@@ -30,10 +32,11 @@ struct MeetingHistoryView: View {
         formatter.dateFormat = "yyyy.MM.dd (E) HH:mm"
         return formatter
     }()
+    private var displayedItems: [MeetingHistoryEntry] { showingDeleted ? history.deletedItems : history.items }
     private var filtered: [MeetingHistoryEntry] {
         let terms = search.split(whereSeparator: \.isWhitespace).map(String.init)
-        guard !terms.isEmpty else { return history.items }
-        return history.items.filter { entry in
+        guard !terms.isEmpty else { return displayedItems }
+        return displayedItems.filter { entry in
             let searchable = entry.title + " " + Self.dateFormatter.string(from: entry.date) + " " + entry.date.formatted(.iso8601.year().month().day())
             return terms.allSatisfy { searchable.localizedCaseInsensitiveContains($0) }
         }
@@ -66,17 +69,28 @@ struct MeetingHistoryView: View {
         .task(id: refreshRevision) {
             await history.refresh()
             guard !Task.isCancelled else { return }
-            if !history.items.contains(where: { $0.id == selectedID }) { selectedID = filtered.first?.id }
+            if !displayedItems.contains(where: { $0.id == selectedID }) { selectedID = filtered.first?.id }
             detailRevision += 1
         }
+        .onChange(of: showingDeleted) { _, _ in selectedID = filtered.first?.id; detailRevision += 1 }
         .task(id: DetailRequest(id: selectedID, revision: detailRevision)) { await loadSelection() }
         .alert("지난 회의 확인", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
             Button("확인", role: .cancel) { actionError = nil }
         } message: { Text(actionError ?? "") }
+        .confirmationDialog("회의 삭제", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), titleVisibility: .visible, presenting: pendingDelete) { entry in
+            Button("삭제한 회의로 이동", role: .destructive) { changeDeletion(entry, deleted: true) }
+            Button("취소", role: .cancel) { pendingDelete = nil }
+        } message: { entry in
+            Text("선택한 회의: \(entry.title)\n\n삭제한 회의로 옮깁니다. 회의록·전사·녹음·연결 자료는 보관하며, 삭제한 회의에서 복원할 수 있습니다.")
+        }
     }
 
     private var meetingList: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Picker("회의 목록", selection: $showingDeleted) {
+                Text("지난 회의").tag(false)
+                Text("삭제한 회의 (\(history.deletedItems.count))").tag(true)
+            }.pickerStyle(.segmented)
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass").foregroundStyle(AppTheme.muted)
                 TextField("회의 제목·날짜 검색", text: $search).textFieldStyle(.plain)
@@ -95,15 +109,30 @@ struct MeetingHistoryView: View {
             if let error = history.error {
                 Text(error).font(.system(size: 11)).foregroundStyle(AppTheme.rose).textSelection(.enabled)
             }
-            if history.loading && history.items.isEmpty {
+            if history.loading && displayedItems.isEmpty {
                 emptyState("저장한 회의를 찾고 있습니다", icon: "doc.text.magnifyingglass")
             } else if filtered.isEmpty {
-                emptyState(search.isEmpty ? "저장한 회의가 여기에 표시됩니다" : "검색어에 맞는 회의를 확인해 주세요", icon: "tray")
+                emptyState(search.isEmpty ? (showingDeleted ? "삭제한 회의가 여기에 표시됩니다" : "저장한 회의가 여기에 표시됩니다") : "검색어에 맞는 회의를 확인해 주세요", icon: "tray")
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
                         ForEach(filtered) { entry in
-                            Button { selectedID = entry.id } label: { listRow(entry) }.buttonStyle(.plain)
+                            ZStack(alignment: .topTrailing) {
+                                Button { selectedID = entry.id } label: { listRow(entry) }.buttonStyle(.plain)
+                                Button {
+                                    if showingDeleted { changeDeletion(entry, deleted: false) }
+                                    else { requestDeletion(entry) }
+                                } label: {
+                                    Image(systemName: showingDeleted ? "arrow.uturn.backward" : "trash")
+                                        .font(.system(size: 12)).frame(width: 28, height: 28).contentShape(Rectangle())
+                                }.buttonStyle(.plain).foregroundStyle(AppTheme.muted).padding(6)
+                                    .help(showingDeleted ? "목록으로 복원" : "회의 삭제")
+                                    .accessibilityLabel((showingDeleted ? "회의 복원: " : "회의 삭제: ") + entry.title)
+                            }
+                            .contextMenu {
+                                if showingDeleted { Button("목록으로 복원") { changeDeletion(entry, deleted: false) } }
+                                else { Button("회의 삭제…", role: .destructive) { requestDeletion(entry) } }
+                            }
                         }
                     }
                 }
@@ -116,7 +145,7 @@ struct MeetingHistoryView: View {
 
     private func listRow(_ entry: MeetingHistoryEntry) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(entry.title).font(.system(size: 13, weight: .semibold)).lineLimit(2)
+            Text(entry.title).font(.system(size: 13, weight: .semibold)).lineLimit(2).padding(.trailing, 25)
             Text(Self.dateFormatter.string(from: entry.date)).font(.system(size: 10)).foregroundStyle(AppTheme.muted)
             HStack(spacing: 9) {
                 Label(time(entry.duration), systemImage: "waveform")
@@ -156,9 +185,13 @@ struct MeetingHistoryView: View {
                         .font(.system(size: 11)).foregroundStyle(AppTheme.muted)
                 }
                 Spacer()
-                HistoryReprocessingControl(model: model, snapshot: value, dismiss: dismiss) { actionError = $0 }
+                if showingDeleted, let entry = displayedItems.first(where: { $0.id == value.id }) {
+                    Button("목록으로 복원") { changeDeletion(entry, deleted: false) }.buttonStyle(.borderedProminent)
+                } else {
+                    HistoryReprocessingControl(model: model, snapshot: value, dismiss: dismiss) { actionError = $0 }
+                }
             }
-            Text("원본은 읽기 전용으로 보관합니다. 재가공본에서 전사를 편집하고 회의록을 다시 생성할 수 있습니다.")
+            Text(showingDeleted ? "삭제한 회의에 보관 중입니다. 목록으로 복원하면 재가공을 이어갈 수 있습니다." : "원본은 읽기 전용으로 보관합니다. 재가공본에서 전사를 편집하고 회의록을 다시 생성할 수 있습니다.")
                 .font(.system(size: 11)).foregroundStyle(AppTheme.muted).lineSpacing(3)
             if !value.warnings.isEmpty {
                 DisclosureGroup("기록 확인 사항 \(value.warnings.count)개") {
@@ -340,7 +373,7 @@ struct MeetingHistoryView: View {
     }
 
     @MainActor private func loadSelection() async {
-        guard let id = selectedID, let entry = history.items.first(where: { $0.id == id }) else {
+        guard let id = selectedID, let entry = displayedItems.first(where: { $0.id == id }) else {
             snapshot = nil; detailError = nil; loadingDetail = false; return
         }
         snapshot = nil; detailError = nil; loadingDetail = true
@@ -354,6 +387,23 @@ struct MeetingHistoryView: View {
             guard !Task.isCancelled, selectedID == id else { return }
             detailError = error.localizedDescription; loadingDetail = false
         }
+    }
+
+    private func requestDeletion(_ entry: MeetingHistoryEntry) {
+        guard model.canDeleteHistory(entry.id) else {
+            actionError = "현재 녹음·저장 중인 회의는 작업 완료 후 삭제할 수 있습니다."; return
+        }
+        pendingDelete = entry
+    }
+    private func changeDeletion(_ entry: MeetingHistoryEntry, deleted: Bool) {
+        pendingDelete = nil
+        guard !deleted || model.canDeleteHistory(entry.id) else {
+            actionError = "현재 녹음·저장 중인 회의는 작업 완료 후 삭제할 수 있습니다."; return
+        }
+        do {
+            try history.setDeleted(entry, deleted: deleted)
+            if selectedID == entry.id { selectedID = filtered.first?.id; snapshot = nil; detailRevision += 1 }
+        } catch { actionError = "회의 목록 변경을 저장하려면 저장 폴더를 확인해 주세요. " + error.localizedDescription }
     }
 
     private func open(_ url: URL) {

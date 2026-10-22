@@ -1682,6 +1682,7 @@ extension AppModel {
         }
         return statusMessage
     }
+    func canDeleteHistory(_ id: UUID) -> Bool { !closing && !(id == session && isBusy) }
     var canOpenHistoryForReprocessing: Bool {
         canPrepareMeeting && !meeting.busy && !assistant.busy && correctionTask == nil
             && !speakerReviewRunning && !voice.learningBusy

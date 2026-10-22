@@ -267,6 +267,71 @@ final class ControlledMicrophone: MicrophoneCapturing {
         await guardedStore.requireRevision(pending.revision+1,for:pending.id)
         do { _=try await guardedStore.save(pending.snapshot(facts:facts),template:pending.template);fatalError("Obsolete generation accepted") }
         catch { check(true,"edit revision barrier rejects obsolete generation") }
+        let trashRoot = root.appendingPathComponent("HistoryTrash")
+        let trashMinutes = trashRoot.appendingPathComponent("Minutes")
+        let trashTranscripts = trashRoot.appendingPathComponent("Transcripts")
+        try FileManager.default.createDirectory(at: trashMinutes, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: trashTranscripts, withIntermediateDirectories: true)
+        let originalID = UUID(), trashCopyID = UUID()
+        let sharedAudio = trashRoot.appendingPathComponent("shared.m4a")
+        let sharedMaterial = trashRoot.appendingPathComponent("shared-reference.md")
+        try Data("shared audio fixture".utf8).write(to: sharedAudio)
+        try Data("공유 참고 자료".utf8).write(to: sharedMaterial)
+        for id in [originalID, trashCopyID] {
+            let json: [String:Any] = ["session_id":id.uuidString,"title":"같은 제목의 회의","started_at":"2026-10-22T01:52:25Z",
+                "duration_seconds":8,"segments":[["id":1,"speaker":1,"start_time":0,"end_time":8,"text":"자료 검토"]],
+                "audio_file":["path":sharedAudio.path]]
+            try JSONSerialization.data(withJSONObject: json).write(to: trashTranscripts.appendingPathComponent(id.uuidString+".json"))
+            try Data("# 회의록\n\n- 자료를 검토했다.".utf8).write(to: trashMinutes.appendingPathComponent(id.uuidString+".md"))
+        }
+        let standalone = trashMinutes.appendingPathComponent("직접 작성한 회의록.md")
+        try Data("# 직접 작성한 회의록".utf8).write(to: standalone)
+        let preservedFiles = [sharedAudio,sharedMaterial,standalone] + [originalID,trashCopyID].flatMap { id in
+            [trashTranscripts.appendingPathComponent(id.uuidString+".json"),trashMinutes.appendingPathComponent(id.uuidString+".md")]
+        }
+        let preservedBytes = try preservedFiles.map { try Data(contentsOf: $0) }
+        let trashHistory = MeetingHistoryStore(transcripts: trashTranscripts, minutes: trashMinutes)
+        await trashHistory.refresh()
+        check(trashHistory.items.count == 3 && trashHistory.deletedItems.isEmpty, "history starts with every saved meeting")
+        let originalEntry = trashHistory.items.first { $0.id == originalID }!
+        let copyEntry = trashHistory.items.first { $0.id == trashCopyID }!
+        let standaloneEntry = trashHistory.items.first { $0.transcriptURL == nil }!
+        try trashHistory.setDeleted(originalEntry, deleted: true)
+        check(trashHistory.items.count == 2 && trashHistory.deletedItems.map(\.id) == [originalID], "delete moves only the selected identity to deleted meetings")
+        check(trashHistory.items.contains { $0.id == trashCopyID }, "same-title reprocessing copy remains in the list")
+        check(try preservedFiles.map { try Data(contentsOf: $0) } == preservedBytes, "delete preserves transcript, Markdown, shared audio and reference bytes")
+        await trashHistory.refresh()
+        check(trashHistory.items.count == 2 && trashHistory.deletedItems.count == 1, "refresh keeps the deleted meeting out of the active list")
+        let reopenedHistory = MeetingHistoryStore(transcripts: trashTranscripts, minutes: trashMinutes)
+        await reopenedHistory.refresh()
+        check(reopenedHistory.items.count == 2 && reopenedHistory.deletedItems.first?.id == originalID, "deleted state survives store relaunch")
+        let deletedSnapshot = try await reopenedHistory.load(reopenedHistory.deletedItems[0])
+        check(deletedSnapshot.audioURL == sharedAudio && !deletedSnapshot.markdown.isEmpty, "deleted meeting remains available for read-only preview")
+        try reopenedHistory.setDeleted(copyEntry, deleted: true)
+        try trashHistory.setDeleted(standaloneEntry, deleted: true)
+        await reopenedHistory.refresh()
+        check(reopenedHistory.items.isEmpty && reopenedHistory.deletedItems.count == 3, "deletions preserve earlier index entries and support standalone Markdown")
+        try reopenedHistory.setDeleted(originalEntry, deleted: false)
+        check(reopenedHistory.items.map(\.id) == [originalID] && reopenedHistory.deletedItems.count == 2, "restore returns the selected meeting to its original list")
+        let trashIndex = trashMinutes.appendingPathComponent(".history-trash.json")
+        let goodIndex = try Data(contentsOf: trashIndex)
+        let invalidIndex = Data("invalid index fixture".utf8)
+        try invalidIndex.write(to: trashIndex)
+        expectFailure("corrupt deletion index blocks overwrite") { try reopenedHistory.setDeleted(copyEntry, deleted: false) }
+        check(try Data(contentsOf: trashIndex) == invalidIndex && reopenedHistory.deletedItems.count == 2, "failed change preserves deletion index and visible state")
+        let damagedHistory = MeetingHistoryStore(transcripts: trashTranscripts, minutes: trashMinutes)
+        await damagedHistory.refresh()
+        check(damagedHistory.items.count == 3 && damagedHistory.error != nil, "unreadable deletion index keeps original history available with an error")
+        try goodIndex.write(to: trashIndex)
+        try reopenedHistory.setDeleted(copyEntry, deleted: false)
+        try reopenedHistory.setDeleted(standaloneEntry, deleted: false)
+        await reopenedHistory.refresh()
+        check(reopenedHistory.items.count == 3 && reopenedHistory.deletedItems.isEmpty, "all meetings restore after relaunch and refresh")
+        check(try preservedFiles.map { try Data(contentsOf: $0) } == preservedBytes, "restore preserves all original file bytes")
+        let blockedParent = trashRoot.appendingPathComponent("regular-file")
+        try Data("keep".utf8).write(to: blockedParent)
+        let blockedTrash = MeetingHistoryTrash(url: blockedParent.appendingPathComponent("index.json"))
+        expectFailure("unwritable deletion index reports failure") { _ = try blockedTrash.setDeleted(originalID, deleted: true) }
         let microphone = ControlledMicrophone()
         let captureModel = AppModel(materials: materials,
             meeting: MeetingWorkspace(directory: root.appendingPathComponent("CaptureMinutes"), defaults: defaults),
@@ -287,6 +352,8 @@ final class ControlledMicrophone: MicrophoneCapturing {
               "pause drains once and blocks premature or duplicate resume")
         check(captureModel.canStop && captureModel.isBusy && !captureModel.canStart && !captureModel.canGenerateMinutes,
               "paused meeting allows stop and keeps new-session and generation guards")
+        check(!captureModel.canDeleteHistory(captureBefore.id) && captureModel.canDeleteHistory(originalID),
+              "live and paused capture is protected while previous meetings can be deleted")
         microphone.level?(0.9)
         try await Task.sleep(for: .milliseconds(20))
         check(captureModel.inputLevel == 0, "queued input meter events stay silent during pause")

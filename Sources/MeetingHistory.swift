@@ -47,6 +47,10 @@ struct MeetingHistoryError: LocalizedError {
 
 @MainActor final class MeetingHistoryStore: ObservableObject {
     @Published private(set) var items: [MeetingHistoryEntry] = []
+    @Published private(set) var deletedItems: [MeetingHistoryEntry] = []
+    private var allItems: [MeetingHistoryEntry] = []
+    private let trash: MeetingHistoryTrash
+    private var lastDeletedIDs = Set<UUID>()
     @Published private(set) var loading = false
     @Published private(set) var error: String?
     @Published private(set) var status = "지난 회의를 불러올 수 있습니다."
@@ -58,6 +62,7 @@ struct MeetingHistoryError: LocalizedError {
 
     init(transcripts: URL = StorageLocations.transcripts, minutes: URL = StorageLocations.minutes, assistant: URL? = nil) {
         self.transcripts = transcripts; self.minutes = minutes
+        self.trash = MeetingHistoryTrash(url: minutes.appendingPathComponent(".history-trash.json"))
         self.assistant = assistant ?? minutes.deletingLastPathComponent().appendingPathComponent("Assistant")
         self.snapshotCache = MeetingHistorySnapshotCache(transcripts: transcripts, minutes: minutes, assistant: self.assistant)
     }
@@ -67,12 +72,32 @@ struct MeetingHistoryError: LocalizedError {
         let transcripts = transcripts, minutes = minutes, assistant = assistant
         let result = await Task.detached(priority: .utility) { MeetingHistoryReader.scan(transcripts: transcripts, minutes: minutes, assistant: assistant) }.value
         guard generation == token, !Task.isCancelled else { if generation == token { loading = false }; return }
-        items = result.items; loading = false
-        status = items.isEmpty ? "저장된 회의가 여기에 표시됩니다." : "\(items.count)개 회의 · 원본 열람과 사본 재가공"
+        allItems = result.items; loading = false
+        do { partition(deletedIDs: try trash.read()) }
+        catch {
+            partition(deletedIDs: lastDeletedIDs)
+            self.error = "삭제 기록을 불러오려면 저장 폴더를 확인해 주세요. " + error.localizedDescription
+            status += " · 삭제 기록 확인 필요"
+            return
+        }
         if !result.warnings.isEmpty {
             status += " · \(result.warnings.count)개 기록 확인 필요"
             error = result.warnings.prefix(3).joined(separator: "\n")
         }
+    }
+    private func partition(deletedIDs: Set<UUID>) {
+        lastDeletedIDs = deletedIDs
+        items = allItems.filter { !deletedIDs.contains($0.id) }
+        deletedItems = allItems.filter { deletedIDs.contains($0.id) }
+        status = "\(items.count)개 회의 · 삭제한 회의 \(deletedItems.count)개"
+    }
+    func setDeleted(_ entry: MeetingHistoryEntry, deleted: Bool) throws {
+        guard allItems.contains(where: { $0.id == entry.id }) else {
+            throw MeetingHistoryError(message: "목록을 새로 고친 뒤 회의를 선택해 주세요.")
+        }
+        let ids = try trash.setDeleted(entry.id, deleted: deleted)
+        partition(deletedIDs: ids)
+        error = nil
     }
     func load(_ entry: MeetingHistoryEntry) async throws -> MeetingHistorySnapshot {
         try Task.checkCancellation()
