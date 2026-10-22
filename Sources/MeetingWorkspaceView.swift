@@ -29,19 +29,32 @@ struct MeetingWorkspaceView: View {
                     Label("채팅 편집본 · 자동 생성본은 저장 폴더에서 확인할 수 있습니다.", systemImage: "pencil.line")
                         .font(.caption).foregroundStyle(AppTheme.violet)
                 }
-                MinutesPreviewView(documentID:workspace.sessionID ?? workspace.bindings.sessionID,
-                    text:workspace.preview.isEmpty ? "회의 전체를 안건별로 정리한 회의록을 생성하면 여기에 표시됩니다." : workspace.preview)
-                    .clipShape(RoundedRectangle(cornerRadius:10))
+                if workspace.hasOutdatedMinutes {
+                    Label("이전 저장본 · 최신 편집 내용을 반영하려면 회의록을 다시 생성하세요.",systemImage:"clock")
+                        .font(.caption).foregroundStyle(AppTheme.violet)
+                }
+                if workspace.preview.isEmpty {
+                    VStack(spacing:12) {
+                        Image(systemName:"doc.text").font(.largeTitle).foregroundStyle(AppTheme.violet)
+                        Text(workspace.busy ? "회의록 생성 중" : "회의록 생성 대기").font(.title3.bold())
+                        Text(workspace.displayStatus).font(.callout).foregroundStyle(.secondary)
+                        Text("전사는 저장된 기록에서 확인할 수 있습니다. 회의록 작성이 끝나면 문서 미리보기를 표시합니다.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }.frame(maxWidth:.infinity,maxHeight:.infinity)
+                } else {
+                    MinutesPreviewView(documentID:workspace.sessionID ?? workspace.bindings.sessionID,text:workspace.preview)
+                        .clipShape(RoundedRectangle(cornerRadius:10))
+                }
             }
             Divider()
             HStack {
                 if workspace.busy { ProgressView().controlSize(.small) }
-                Text(workspace.status).font(.caption).foregroundStyle(.secondary)
+                Text(workspace.displayStatus).font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 if model.meetingPrepared { Button("준비 완료 · 녹음 시작") { dismiss();model.start() }.disabled(!model.canStart) }
                 Button("저장 폴더",action:workspace.showFolder)
                 Button("MD 열기",action:workspace.openFile).disabled(workspace.lastURL==nil)
-                Button("지금 생성·저장") { model.syncMeetingMinutes(force:true);workspace.generateNow() }
+                Button(workspace.lastURL == nil ? "회의록 생성" : "회의록 다시 생성") { model.syncMeetingMinutes(force:true);workspace.generateNow() }
                     .buttonStyle(.borderedProminent).disabled(!workspace.canGenerate || workspace.busy)
             }
             if let error=workspace.error { Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled) }
@@ -138,9 +151,10 @@ struct MeetingWorkspaceView: View {
                 GroupBox("회의록 자동 저장") {
                     VStack(alignment:.leading,spacing:10) {
                         HStack {
-                            Toggle("주기적으로 갱신하고 종료 시 저장",isOn:$workspace.automatic)
+                            Toggle("녹음 중 주기적으로 갱신",isOn:$workspace.automatic)
                             Picker("간격",selection:$workspace.interval) { Text("60초").tag(60);Text("90초").tag(90);Text("3분").tag(180) }.frame(width:145)
                         }
+                        Toggle("녹음 종료 후 회의록 생성",isOn:$workspace.generateOnFinish)
                         HStack {
                             Label("작성 모델 · \(model.codexSettings.provider.title)",systemImage:"sparkles").font(.callout)
                             Text("\(model.codexSettings.model.isEmpty ? "기본 모델" : model.codexSettings.model) · \(model.codexSettings.effort.isEmpty ? "기본 추론" : model.codexSettings.effort)").font(.caption).foregroundStyle(.secondary)
@@ -250,7 +264,7 @@ struct MeetingSidebarButton:View {
         Button(action:action) {
             VStack(alignment:.leading,spacing:5) {
                 Label("회의 준비 · 자료 · 회의록",systemImage:"doc.text").font(.system(size:13,weight:.semibold))
-                Text(workspace.busy ? "회의록 생성 중…" : (workspace.error == nil ? "연락처·참석자 · Markdown 자동 저장" : "저장 상태 확인 필요"))
+                Text(workspace.displayStatus)
                     .font(.system(size:10)).opacity(0.65).lineLimit(2)
             }.frame(maxWidth:.infinity,alignment:.leading).padding(12)
                 .background(.white.opacity(0.58),in:RoundedRectangle(cornerRadius:10))

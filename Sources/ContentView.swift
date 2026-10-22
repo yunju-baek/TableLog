@@ -510,19 +510,21 @@ struct ContentView: View {
             .padding(.top, 30)
             .padding(.bottom, 18)
 
-            if model.isReprocessing {
+            if model.isReprocessing || (!model.isBusy && model.meeting.canGenerate) {
                 VStack(alignment: .leading, spacing: 9) {
-                    Label("지난 회의 재가공본 · 원본 보관", systemImage: "doc.on.doc")
+                    Label(model.isReprocessing ? "지난 회의 재가공본 · 원본 보관" : "전사 저장 완료 · 회의록", systemImage: "doc.on.doc")
                         .font(.system(size: 12, weight: .semibold))
                     Text("발언과 화자를 편집하고, 회의자료를 더해 다시 정리할 수 있습니다.")
                         .font(.system(size: 11)).foregroundStyle(AppTheme.muted)
                     HStack(spacing: 10) {
-                        Button("회의록 다시 생성", action: model.regenerateHistoryMinutes)
-                            .buttonStyle(.borderedProminent).disabled(!model.canRegenerateHistoryMinutes)
+                        Button(model.meeting.lastURL == nil ? "회의록 생성" : "회의록 다시 생성", action: model.generateMinutes)
+                            .buttonStyle(.borderedProminent).disabled(!model.canGenerateMinutes)
                         Button("회의록 보기") { meetingTab=1;showingMeeting=true }
                             .buttonStyle(.bordered).disabled(model.meeting.lastURL == nil)
-                        Button("문맥 다시 교정", action: model.recorrectHistoryTranscript)
-                            .buttonStyle(.bordered).disabled(model.isBusy)
+                        if model.isReprocessing {
+                            Button("문맥 다시 교정", action: model.recorrectHistoryTranscript)
+                                .buttonStyle(.bordered).disabled(model.isBusy)
+                        }
                     }.font(.system(size: 11))
                 }
                 .foregroundStyle(AppTheme.violet)

@@ -327,7 +327,10 @@ enum MeetingHistoryReader {
             let allowance: TimeInterval = transcript?.preciseSavedTime == true ? 0 : 1
             let newerRecord = record != nil && (transcript == nil || (record?.saved != nil && transcript?.saved != nil && record!.saved! > transcript!.saved!.addingTimeInterval(allowance)))
             let selected = newerRecord ? record : (transcript ?? record)
-            let markdown = record?.embeddedOutput ?? transcript?.embeddedOutput ?? source.markdown
+            let candidate = record?.embeddedOutput ?? transcript?.embeddedOutput ?? source.markdown
+            let pending = candidate.flatMap { try? read($0,limit:20 * 1024 * 1024) }
+                .map { MeetingMinutesRenderer.isPendingDraft(String(decoding:$0,as:UTF8.self)) } ?? false
+            let markdown = pending ? nil : candidate
             let meetingTitle = title(newerRecord ? record?.title : transcript?.title,
                 fallback: title(record?.title ?? transcript?.embeddedTitle, fallback: markdown?.deletingPathExtension().lastPathComponent ?? "저장된 회의"))
             let meetingDate = transcript?.date ?? record?.date ?? transcript?.embeddedDate ?? source.transcript.map(modified) ?? source.record.map(modified) ?? markdown.map(modified) ?? .distantPast
@@ -390,9 +393,10 @@ enum MeetingHistoryReader {
         }
         if record == nil, let embedded = transcript?.record, embedded.id == entry.id { record = embedded }
         [fileURL(recordDTO?.editedOutput ?? recordDTO?.output), fileURL(record?.editedOutput ?? record?.output), entry.minutesURL].compactMap { $0 }.forEach { beforeRead?($0) }
-        let minutesURL = existing(fileURL(recordDTO?.editedOutput ?? recordDTO?.output)) ?? existing(fileURL(record?.editedOutput ?? record?.output)) ?? existing(entry.minutesURL)
+        var minutesURL = existing(fileURL(recordDTO?.editedOutput ?? recordDTO?.output)) ?? existing(fileURL(record?.editedOutput ?? record?.output)) ?? existing(entry.minutesURL)
         var markdown = ""
         if let minutesURL { do { markdown = String(decoding: try sourceData(minutesURL, limit: 20 * 1024 * 1024), as: UTF8.self) } catch { warnings.append("회의록 파일 확인: " + error.localizedDescription) } }
+        if MeetingMinutesRenderer.isPendingDraft(markdown) { markdown="";minutesURL=nil }
         guard transcript != nil || recordDTO != nil || !markdown.isEmpty else { throw MeetingHistoryError(message: "회의 원본을 찾을 수 없습니다. 저장 위치를 확인한 뒤 목록을 새로고침해 주세요.") }
         // Saved transcripts already contain projected manual edits and effective speaker IDs.
         // Replaying edit logs here would apply the same operation twice.

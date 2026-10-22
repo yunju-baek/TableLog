@@ -87,6 +87,8 @@ import Combine
         expectFailure("invalid speaker rejected") { try plan(snapshot.documents.first{$0.id=="utterance.1"}!,speaker:9).validate(in:snapshot) }
         check(snapshot.focused(on:"예산",limit:1000).omittedCount>0,"partial context explicitly marked")
         let minuteDoc=model.editingSnapshot().documents.first{$0.kind == .minutes}!, originalMinutes=minutes.preview
+        check(minutes.lastURL==nil && minutes.metadata?.output==nil,"pending minutes have no exported document")
+        check(model.canGenerateMinutes && !model.canRegenerateHistoryMinutes && model.displayStatusMessage.contains("회의록 생성"),"ordinary completed meeting exposes generation and pending status")
         let minutesReceipt=try model.applyEditingPlan(plan(minuteDoc,"# 회의록 편집본\n\n- 실습 과목 두 개 운영\n- 학생 의견 수렴"),capture:model.editingSnapshot())
         check(minutes.preview.contains("회의록 편집본"),"minutes preview reflects edit")
         check(try String(contentsOf:minutesReceipt.url!,encoding:.utf8)==minutes.preview,"minutes draft persisted")
@@ -98,7 +100,7 @@ import Combine
         check(reopened.preview==minutes.preview,"minutes edit survives reopen")
         check(minutes.metadata?.editedOutput==minutesReceipt.url?.path,"history points to edited minutes")
         try minutesReceipt.undo();check(!minutes.isShowingEditedDraft,"minutes undo returns generated view")
-        check(!originalMinutes.isEmpty,"original minutes captured")
+        check(originalMinutes.isEmpty,"pending minutes stay empty until content is generated")
         let materialCapture=model.editingSnapshot(), materialDoc=materialCapture.documents.first{$0.kind == .material && $0.text.contains("인공 지능")}!
         let materialReceipt=try model.applyEditingPlan(plan(materialDoc,"과목명은 인공지능 기초다."),capture:materialCapture)
         check(materials.context.documents.count==1,"edited material replaces active selection")
@@ -167,7 +169,78 @@ import Combine
         await controlled.resolve(.success(facts))
         try await waitForSave()
         check(main.canRegenerateHistoryMinutes && main.displayStatusMessage.hasPrefix("회의록 저장 · "),"retry returns to saved state")
+        let previousSpeech=main.segments[0]
+        main.segments[0]=TranscriptSegment(id:previousSpeech.id,speaker:previousSpeech.speaker,startTime:previousSpeech.startTime,
+            endTime:previousSpeech.endTime,text:"편집한 실습 운영 계획입니다.")
+        main.syncMeetingMinutes(force:true);generating.invalidateTranscriptAfterEdit()
+        try await Task.sleep(nanoseconds:50_000_000)
+        check(try Data(contentsOf:savedURL)==savedData && generating.hasOutdatedMinutes,"transcript edits preserve prior minutes and mark them outdated")
+        main.regenerateHistoryMinutes()
+        try await waitForGenerator()
+        await controlled.resolve(.success(MeetingMinutesFacts()))
+        try await waitForSave()
+        let afterEmptyGeneration=try Data(contentsOf:savedURL)
+        check(generating.error != nil && afterEmptyGeneration==savedData,"empty generation result cannot replace completed minutes")
         observation.cancel()
+
+        let autoRoot=root.appendingPathComponent("AutoFinish")
+        let autoGenerator=SuspendedMinutesGenerator()
+        let auto=MeetingWorkspace(directory:autoRoot,generator:autoGenerator,defaults:defaults)
+        auto.automatic=false;auto.generateOnFinish=true
+        let autoID=UUID(), autoSpeech=[MeetingUtterance(id:1,speaker:1,start:0,end:8,text:"실습 과목 운영을 검토합니다.")]
+        func receiveAuto(_ ended:Bool) {
+            auto.receive(id:autoID,title:"종료 시 생성 검사",date:Date(),segments:autoSpeech,names:[:],ended:ended,settings:settings,force:true)
+        }
+        receiveAuto(false)
+        auto.tick(at:Date().addingTimeInterval(300))
+        check(!auto.busy && auto.lastURL==nil,"finish-only mode waits while recording")
+        check(!FileManager.default.fileExists(atPath:autoRoot.appendingPathComponent(autoID.uuidString+".md").path),"recording creates no blank Markdown")
+        receiveAuto(true)
+        auto.tick(at:Date().addingTimeInterval(4))
+        for _ in 0..<200 {
+            if await autoGenerator.hasPending { break }
+            try await Task.sleep(nanoseconds:10_000_000)
+        }
+        check(await autoGenerator.callCount==1 && auto.busy,"finish-only mode automatically generates after recording")
+        await autoGenerator.resolve(.success(facts))
+        for _ in 0..<200 {
+            if !auto.busy { break }
+            try await Task.sleep(nanoseconds:10_000_000)
+        }
+        check(auto.metadata?.savedRevision==auto.metadata?.revision && auto.lastURL != nil,"automatic finish saves completed content")
+        let completed=MeetingHistoryReader.scan(transcripts:root.appendingPathComponent("Absent"),minutes:autoRoot)
+        check(completed.items.first?.hasMinutes==true,"history recognizes completed minutes")
+
+        let copyID=UUID()
+        var copy=auto.metadata!;copy.id=copyID;copy.bindings=MeetingSpeakerBindings(sessionID:copyID)
+        check(auto.openReprocessing(record:copy),"reprocessing opens with separate identity")
+        auto.tick(at:Date().addingTimeInterval(300))
+        check(!auto.busy && auto.lastURL==nil,"reprocessing waits for explicit generation even with finish mode enabled")
+        let emptyID=UUID()
+        auto.receive(id:emptyID,title:"빈 녹음",date:Date(),segments:[],names:[:],ended:true,settings:settings,force:true)
+        auto.generateNow()
+        check(!auto.busy && auto.lastURL==nil,"zero speech never generates an empty artifact")
+        let restoredAuto=MeetingWorkspace(directory:autoRoot,defaults:defaults)
+        check(!restoredAuto.automatic && restoredAuto.generateOnFinish,"recording and finish preferences persist separately")
+
+        let legacyRoot=root.appendingPathComponent("PendingHistory")
+        var pending=copy;pending.id=UUID();pending.bindings=MeetingSpeakerBindings(sessionID:pending.id);pending.savedRevision = -1
+        let placeholderURL=legacyRoot.appendingPathComponent(pending.id.uuidString+".md")
+        pending.output=placeholderURL.path
+        let sessions=legacyRoot.appendingPathComponent("Sessions")
+        try FileManager.default.createDirectory(at:sessions,withIntermediateDirectories:true)
+        try JSONEncoder().encode(pending).write(to:sessions.appendingPathComponent(pending.id.uuidString+".json"))
+        let placeholder=try MeetingMinutesRenderer.render(pending.snapshot(facts:MeetingMinutesFacts()),template:pending.template)
+        try Data(placeholder.utf8).write(to:placeholderURL)
+        let legacyList=MeetingHistoryReader.scan(transcripts:root.appendingPathComponent("Absent"),minutes:legacyRoot)
+        check(legacyList.items.count==1 && !legacyList.items[0].hasMinutes,"history marks legacy blank document as pending")
+        let legacySnapshot=try MeetingHistoryReader.load(legacyList.items[0])
+        check(legacySnapshot.markdown.isEmpty && legacySnapshot.minutesURL==nil && legacySnapshot.segments.count==1,"legacy placeholder stays out of preview while transcript is available")
+        check(try String(contentsOf:placeholderURL,encoding:.utf8)==placeholder,"legacy source file is preserved")
+        let guardedStore=MeetingFileStore(directory:root.appendingPathComponent("RevisionGuard"))
+        await guardedStore.requireRevision(pending.revision+1,for:pending.id)
+        do { _=try await guardedStore.save(pending.snapshot(facts:facts),template:pending.template);fatalError("Obsolete generation accepted") }
+        catch { check(true,"edit revision barrier rejects obsolete generation") }
         print("RESULT: \(passed) checks passed")
         if CommandLine.arguments.contains("--live-all") {
             var failures=0

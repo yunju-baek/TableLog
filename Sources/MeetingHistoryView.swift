@@ -193,10 +193,15 @@ struct MeetingHistoryView: View {
 
     @ViewBuilder private func minutes(_ value: MeetingHistorySnapshot) -> some View {
         if value.markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            emptyState("저장한 회의록이 여기에 표시됩니다. 전사 탭에서 발언을 확인할 수 있습니다.", icon: "doc.text")
+            emptyState(value.segments.isEmpty ? "회의록 생성에 사용할 발언을 확인해 주세요." : "회의록 생성 대기 · 전사는 보관돼 있습니다. ‘재가공본 만들기’ 후 ‘회의록 생성’을 눌러 주세요.", icon: "doc.text")
         } else {
-            MinutesPreviewView(documentID: value.id, text: value.markdown)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+            VStack(alignment:.leading,spacing:8) {
+                if let record=value.record,record.editedOutput == nil,record.savedRevision>=0,record.savedRevision<record.revision {
+                    Label("이전 저장본 · 최신 편집 내용 반영 대기",systemImage:"clock").font(.caption).foregroundStyle(AppTheme.violet)
+                }
+                MinutesPreviewView(documentID: value.id, text: value.markdown)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
         }
     }
 

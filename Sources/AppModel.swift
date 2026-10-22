@@ -1641,12 +1641,11 @@ extension AppModel {
 extension AppModel {
     var canPrepareMeeting: Bool { canStart && !materials.busy }
     var isReprocessing: Bool { reprocessingOrigin != nil }
-    var canRegenerateHistoryMinutes: Bool { isReprocessing && !closing && !isBusy && !meeting.busy && meeting.canGenerate }
+    var canGenerateMinutes: Bool { !closing && !isBusy && !meeting.busy && meeting.canGenerate }
+    var canRegenerateHistoryMinutes: Bool { isReprocessing && canGenerateMinutes }
     var displayStatusMessage: String {
-        if isReprocessing && !isBusy {
-            if meeting.busy { return meeting.status }
-            if let error=meeting.error { return error }
-            if (meeting.metadata?.savedRevision ?? -1) >= 0 { return meeting.status }
+        if !isBusy && meeting.sessionID != nil && !segments.isEmpty {
+            return meeting.displayStatus
         }
         return statusMessage
     }
@@ -1708,6 +1707,10 @@ extension AppModel {
     }
     func regenerateHistoryMinutes() {
         guard canRegenerateHistoryMinutes else { return }
+        generateMinutes()
+    }
+    func generateMinutes() {
+        guard canGenerateMinutes else { return }
         syncMeetingMinutes(force:true);meeting.generateNow()
     }
     func recorrectHistoryTranscript() {

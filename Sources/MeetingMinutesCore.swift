@@ -97,6 +97,7 @@ public struct MeetingMinutesFacts: Codable {
     public var discussions: [MeetingDiscussion] = []
     public var openIssues: [EvidencedItem] = []
     public init() {}
+    public var hasContent: Bool { !summary.isEmpty || !decisions.isEmpty || !actions.isEmpty || !discussions.isEmpty }
 }
 public struct MeetingMinutesSnapshot {
     public let title: String
@@ -122,6 +123,11 @@ public struct MeetingMinutesSnapshot {
 public enum MeetingMinutesError: Error { case invalidEvidence, outdatedRevision, invalidTranscript, unsupportedTemplate }
 
 public enum MeetingMinutesRenderer {
+    // Recognize the empty documents created by earlier versions while keeping their files intact.
+    static func isPendingDraft(_ markdown: String) -> Bool {
+        markdown.contains("요약할 내용 확인 필요") && markdown.contains("논의 내용 정리 대기")
+            && markdown.contains("확정된 결정 사항 확인 필요") && markdown.contains("후속 조치 확인 필요")
+    }
     public static func time(_ value: Double) -> String {
         let n = Int(max(0, value))
         return n >= 3600 ? String(format: "%02d:%02d:%02d", n / 3600, n / 60 % 60, n % 60) : String(format: "%02d:%02d", n / 60, n % 60)
@@ -186,8 +192,12 @@ public actor MeetingFileStore {
     private let directory: URL
     private var revisions: [UUID: Int] = [:]
     public init(directory: URL) { self.directory = directory }
+    public func requireRevision(_ revision: Int, for id: UUID) {
+        revisions[id] = max(revisions[id, default: -1], revision)
+    }
     public func save(_ snapshot: MeetingMinutesSnapshot, template: MeetingTemplate) throws -> URL {
         guard snapshot.revision >= revisions[snapshot.sessionID, default: -1] else { throw MeetingMinutesError.outdatedRevision }
+        guard snapshot.facts.hasContent else { throw MinutesGenerationError.response }
         let markdown = try MeetingMinutesRenderer.render(snapshot, template: template)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let target = directory.appendingPathComponent(snapshot.sessionID.uuidString + ".md")

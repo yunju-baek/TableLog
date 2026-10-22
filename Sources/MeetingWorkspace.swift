@@ -51,6 +51,7 @@ struct MeetingWorkRecord: Codable {
     @Published var purpose = ""
     @Published var provider: MinutesProvider = .codex { didSet { defaults.set(provider.rawValue,forKey:"minutes.provider") } }
     @Published var automatic = true { didSet { defaults.set(automatic,forKey:"minutes.automatic") } }
+    @Published var generateOnFinish = true { didSet { defaults.set(generateOnFinish,forKey:"minutes.onFinish") } }
     @Published var interval = 90 { didSet { defaults.set(interval,forKey:"minutes.interval") } }
     @Published private(set) var bindings = MeetingSpeakerBindings(sessionID:UUID())
     @Published private(set) var status = "전사문이 쌓이면 회의록을 생성합니다."
@@ -64,6 +65,18 @@ struct MeetingWorkRecord: Codable {
     private var editedRevision = UUID()
     var preview: String { editedPreview ?? generatedPreview }
     var isShowingEditedDraft: Bool { editedPreview != nil }
+    var hasOutdatedMinutes: Bool {
+        !isShowingEditedDraft && generatedURL != nil && (metadata.map { $0.savedRevision < $0.revision } ?? false)
+    }
+    var displayStatus: String {
+        if busy { return status }
+        if let error { return error }
+        if isShowingEditedDraft { return status }
+        if hasOutdatedMinutes { return "이전 회의록 보관 · 최신 편집 내용 반영 대기" }
+        if generatedURL != nil { return status }
+        guard let record=metadata, !record.segments.isEmpty else { return "발언 저장 후 회의록을 생성할 수 있습니다." }
+        return shouldAutomaticallyGenerate(record) ? "전사 저장 완료 · 회의록 자동 생성 대기" : "전사 저장 완료 · ‘회의록 생성’을 눌러 주세요."
+    }
     @Published private(set) var sessionID: UUID?
     private let store: MeetingFileStore
     private let generator: any MinutesGenerating
@@ -94,6 +107,7 @@ struct MeetingWorkRecord: Codable {
         self.directory=directory;self.store=MeetingFileStore(directory:directory);self.generator=generator;self.defaults=defaults
         provider=MinutesProvider(rawValue:defaults.string(forKey:"minutes.provider") ?? "codex") ?? .codex
         automatic=defaults.object(forKey:"minutes.automatic") as? Bool ?? true
+        generateOnFinish=defaults.object(forKey:"minutes.onFinish") as? Bool ?? automatic
         interval=max(30,defaults.object(forKey:"minutes.interval") as? Int ?? 90)
         selectedID=UUID(uuidString:defaults.string(forKey:"minutes.template") ?? "") ?? Self.defaultID
         templates=[Self.defaultTemplate]
@@ -119,7 +133,7 @@ struct MeetingWorkRecord: Codable {
     }
     func begin(id:UUID) {
         // A previous meeting continues to save from its immutable capture while the new meeting records.
-        if let old=sessionID,activeSessions.contains(old),records[old] != nil { records[old]?.ended=true;if automatic && !manualOnlySessions.contains(old) { enqueue(old) } }
+        if let old=sessionID,activeSessions.contains(old),records[old] != nil { records[old]?.ended=true;if generateOnFinish && !manualOnlySessions.contains(old) { enqueue(old) } }
         let attendance=sessionID == nil ? bindings.confirmedParticipants : []
         activeSessions.insert(id)
         sessionID=id;bindings=MeetingSpeakerBindings(sessionID:id)
@@ -153,8 +167,7 @@ struct MeetingWorkRecord: Codable {
         records[record.id]=record;signatures.removeValue(forKey:record.id)
         lastAttempt[record.id]=Date();lastTick = .distantPast
         persist(record.id)
-        saveTranscriptBaseline(record.id)
-        status="전사 편집 후 ‘지금 생성·저장’으로 회의록을 생성하세요."
+        status="전사 편집 후 ‘회의록 생성’으로 결과를 저장하세요."
         return true
     }
     func bind(_ person:MeetingPerson,speaker:Int) { bindings.bind(person,to:speaker) }
@@ -186,14 +199,17 @@ struct MeetingWorkRecord: Codable {
             records[id]=MeetingWorkRecord(id:id,revision:(old?.revision ?? 0)+1,savedRevision:old?.savedRevision ?? -1,date:formatter.string(from:date),title:title,purpose:purpose,template:selectedTemplate,bindings:bindings,names:names,segments:segments,ended:ended,provider:provider,settings:settings,output:old?.output,error:nil,updatedAt:now,materials:materialContext,assistantAppendix:assistantAppendix,editedOutput:old?.editedOutput)
             signatures[id]=signature
             persist(id)
-            if old == nil { lastAttempt[id]=now; saveTranscriptBaseline(id) }
+            if old == nil { lastAttempt[id]=now }
         } else { records[id]?.ended=ended }
         tick()
     }
-    func tick() {
-        guard automatic,!closing else { return }
-        let now=Date()
+    private func shouldAutomaticallyGenerate(_ record: MeetingWorkRecord) -> Bool {
+        !manualOnlySessions.contains(record.id) && (record.ended ? generateOnFinish : automatic)
+    }
+    func tick(at now: Date = Date()) {
+        guard !closing else { return }
         for record in records.values where activeSessions.contains(record.id) && !manualOnlySessions.contains(record.id) && record.savedRevision<record.revision && !record.segments.isEmpty {
+            guard shouldAutomaticallyGenerate(record) else { continue }
             if usesLiveAssistant && !record.ended { continue }
             let elapsed=now.timeIntervalSince(lastAttempt[record.id] ?? .distantPast)
             let quiet=now.timeIntervalSince(record.updatedAt)
@@ -213,23 +229,18 @@ struct MeetingWorkRecord: Codable {
     func invalidateTranscriptAfterEdit() {
         guard let id=sessionID,var record=records[id] else { return }
         minimumEditRevision[id]=record.revision
-        record.savedRevision = -1;records[id]=record;persist(id)
+        record.savedRevision = min(record.savedRevision,record.revision-1);records[id]=record;persist(id)
         if runningID==id {
             task?.cancel()
-            if automatic && !manualOnlySessions.contains(id) && !queue.contains(id) { queue.append(id) }
+            if shouldAutomaticallyGenerate(record) && !queue.contains(id) { queue.append(id) }
         }
-        // The store serializes this empty-facts replacement with any older generation.
-        // Its revision guard prevents an obsolete result from restoring removed speech.
+        // Advance the write barrier while preserving the previous completed document.
         transcriptSaveTask=Task {
-            do {
-                let url=try await store.save(record.snapshot(facts:MeetingMinutesFacts()),template:record.template)
-                if sessionID==id, records[id]?.revision==record.revision {
-                    generatedURL=url;generatedPreview=(try? String(contentsOf:url,encoding:.utf8)) ?? ""
-                    status=record.segments.isEmpty ? "모든 발언 삭제 · 저장 완료" : "편집된 전사문 저장 · 회의록 갱신 대기"
-                    if record.segments.isEmpty { records[id]?.savedRevision=record.revision;persist(id) }
-                }
-                if automatic && !manualOnlySessions.contains(id) { enqueue(id,force:true) }
-            } catch { if sessionID==id, records[id]?.revision==record.revision { self.error="편집된 전사문 저장 실패 · " + error.localizedDescription } }
+            await store.requireRevision(record.revision,for:id)
+            if sessionID==id, records[id]?.revision==record.revision {
+                status=record.segments.isEmpty ? "모든 발언 삭제 · 전사 저장 완료" : "편집된 전사문 저장 · 회의록 갱신 대기"
+            }
+            if shouldAutomaticallyGenerate(record) { enqueue(id) }
         }
     }
     func generateNow() { if let id=sessionID { enqueue(id,force:true) } }
@@ -248,22 +259,11 @@ struct MeetingWorkRecord: Codable {
             try encoder.encode(record).write(to:folder.appendingPathComponent(id.uuidString+".json"),options:.atomic)
         } catch { self.error="회의록 복구 자료 저장 실패 · " + error.localizedDescription }
     }
-    private func saveTranscriptBaseline(_ id:UUID) {
-        guard let record=records[id],record.savedRevision < 0 else { return }
-        do {
-            let markdown=try MeetingMinutesRenderer.render(record.snapshot(facts:MeetingMinutesFacts()),template:record.template).replacingOccurrences(of:"확인된 내용 없음",with:"회의록 생성 대기").replacingOccurrences(of:"확인된 결정 없음",with:"회의록 생성 대기").replacingOccurrences(of:"확인된 할 일 없음",with:"회의록 생성 대기")
-            try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
-            let url=directory.appendingPathComponent(id.uuidString+".md")
-            try Data(markdown.utf8).write(to:url,options:.atomic)
-            records[id]?.output=url.path;persist(id)
-            if sessionID==id { generatedURL=url;generatedPreview=markdown;status="회의록 작성 대기" }
-        } catch { self.error="회의록 초안 저장 실패 · " + error.localizedDescription }
-    }
     private func reportProgress(id:UUID,part:Int,total:Int,provider:MinutesProvider) {
         if sessionID==id { status="안건별 회의록 작성 · \(part)/\(total) · \(provider.title)" }
     }
     private func enqueue(_ id:UUID,force:Bool=false) {
-        guard activeSessions.contains(id),force || !manualOnlySessions.contains(id),let record=records[id],(!record.segments.isEmpty || force),force || record.revision>record.savedRevision else { return }
+        guard activeSessions.contains(id),force || !manualOnlySessions.contains(id),let record=records[id],!record.segments.isEmpty,force || record.revision>record.savedRevision else { return }
         guard record.provider.isAvailable else {
             if sessionID == id { status="전사문 보관 중 · 회의록 설정에서 AI CLI 사용을 선택하세요." }
             return
@@ -278,14 +278,7 @@ struct MeetingWorkRecord: Codable {
             while !self.queue.isEmpty && !Task.isCancelled {
                 let id=self.queue.removeFirst()
                 guard let record=self.records[id], record.provider.isAvailable else { continue }
-                if record.segments.isEmpty {
-                    do {
-                        let url=try await self.store.save(record.snapshot(facts:MeetingMinutesFacts()),template:record.template)
-                        self.records[id]?.savedRevision=record.revision;self.records[id]?.output=url.path;self.persist(id)
-                        if self.sessionID==id { self.generatedURL=url;self.generatedPreview=(try? String(contentsOf:url,encoding:.utf8)) ?? "" }
-                    } catch { if self.sessionID==id { self.error=error.localizedDescription } }
-                    continue
-                }
+                if record.segments.isEmpty { continue }
                 self.runningID=id;self.lastAttempt[id]=Date()
                 do {
                     let facts=try await CodexJobContext.$priority.withValue(.minutes) {
@@ -296,13 +289,13 @@ struct MeetingWorkRecord: Codable {
                     try Task.checkCancellation()
                     if record.revision < self.minimumEditRevision[id,default:-1] {
                         self.runningID=nil
-                        if self.automatic && !self.manualOnlySessions.contains(id) { self.queue.append(id) }
+                        if self.shouldAutomaticallyGenerate(record) { self.queue.append(id) }
                         continue
                     }
                     let url=try await self.store.save(record.snapshot(facts:facts),template:record.template)
                     if record.revision < self.minimumEditRevision[id,default:-1] {
                         self.runningID=nil
-                        if self.automatic && !self.manualOnlySessions.contains(id) { self.queue.append(id) }
+                        if self.shouldAutomaticallyGenerate(record) { self.queue.append(id) }
                         continue
                     }
                     self.records[id]?.savedRevision=record.revision;self.records[id]?.output=url.path;self.records[id]?.error=nil
@@ -314,15 +307,14 @@ struct MeetingWorkRecord: Codable {
                 } catch {
                     if record.revision < self.minimumEditRevision[id,default:-1] {
                         self.runningID=nil
-                        if self.automatic && !self.manualOnlySessions.contains(id) { self.queue.append(id) }
+                        if self.shouldAutomaticallyGenerate(record) { self.queue.append(id) }
                         continue
                     }
-                    self.saveTranscriptBaseline(id)
                     self.records[id]?.error=error.localizedDescription;self.persist(id)
                     if self.sessionID==id { self.error="회의록 갱신 대기 · " + error.localizedDescription;self.status="전사문과 직전 회의록 보존 · 다시 생성 가능" }
                 }
                 self.runningID=nil
-                if self.closing,let latest=self.records[id],latest.revision>record.revision,self.automatic,!self.manualOnlySessions.contains(id) { self.queue.append(id) }
+                if self.closing,let latest=self.records[id],latest.revision>record.revision,self.shouldAutomaticallyGenerate(latest) { self.queue.append(id) }
             }
             self.task=nil;self.busy=false
             if let next=self.queue.first { self.enqueue(next,force:true) }
@@ -331,7 +323,7 @@ struct MeetingWorkRecord: Codable {
     func finish() async {
         closing=true
         await transcriptSaveTask?.value
-        if automatic {
+        if generateOnFinish {
             for id in activeSessions where records[id] != nil && !manualOnlySessions.contains(id) { records[id]?.ended=true;persist(id);enqueue(id) }
         }
         while let current=task { await current.value }
