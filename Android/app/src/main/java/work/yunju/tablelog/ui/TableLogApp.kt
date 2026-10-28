@@ -31,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import work.yunju.tablelog.TableLogViewModel
 import work.yunju.tablelog.audio.RecordingService
 import work.yunju.tablelog.data.*
+import work.yunju.tablelog.ai.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun TableLogApp(vm: TableLogViewModel) = TableLogTheme {
@@ -38,6 +39,8 @@ import work.yunju.tablelog.data.*
     val meetings by vm.repository.meetings.collectAsStateWithLifecycle()
     val ready by vm.app.ready.collectAsStateWithLifecycle()
     val recording by RecordingService.state.collectAsStateWithLifecycle()
+    val local by LocalAiService.state.collectAsStateWithLifecycle()
+    val working = vm.busy != null || local.running
     val warning by vm.repository.warning.collectAsStateWithLifecycle()
     val selected = meetings.find { it.id == vm.selectedId }
     var newMeeting by rememberSaveable { mutableStateOf(false) }
@@ -48,6 +51,7 @@ import work.yunju.tablelog.data.*
     var exportText by rememberSaveable { mutableStateOf("") }
     var aiConsent by remember { mutableStateOf<Pair<Meeting, Boolean>?>(null) }
     var aiHost by remember { mutableStateOf("") }
+    var approvedSettings by remember { mutableStateOf<AISettings?>(null) }
     val snackbar = remember { SnackbarHostState() }
     fun service(action: String) {
         try {
@@ -67,6 +71,13 @@ import work.yunju.tablelog.data.*
     LaunchedEffect(recording.meetingId) { recording.meetingId?.let { vm.selectedId = it } }
     LaunchedEffect(recording.error) { recording.error?.let { vm.message = it } }
     LaunchedEffect(warning) { warning?.let { vm.message = it } }
+    LaunchedEffect(local) {
+        if (!local.running && local.message != null) {
+            vm.message = local.message
+            local.completedMeetingId?.let { vm.selectedId = it; vm.loadLocalProposal(it) }
+            LocalAiService.dismissMessage()
+        }
+    }
     LaunchedEffect(vm.message) { vm.message?.let { snackbar.showSnackbar(it); vm.message = null } }
     BackHandler(selected != null && !settings) { vm.selectedId = null }
 
@@ -113,7 +124,7 @@ import work.yunju.tablelog.data.*
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            vm.busy?.let { progress ->
+            (if (local.running) local.message else vm.busy)?.let { progress ->
                 LinearProgressIndicator(Modifier.fillMaxWidth())
                 Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(progress, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
@@ -121,18 +132,44 @@ import work.yunju.tablelog.data.*
                 }
             }
             if (!ready) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            else if (selected == null) HomeScreen(meetings, showTrash, recording.meetingId,
-                onOpen = { vm.selectedId = it }, onRecord = { title = ""; newMeeting = true },
-                onImport = { importer.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }, onExample = vm::addExample,
-                onRestore = { id -> vm.edit(id) { it.copy(deleted = false) } }, busy = vm.busy != null)
-            else MeetingScreen(selected, recording, vm.repository.audioFile(selected),
-                onCommand = ::service, onEdit = { change -> vm.edit(selected.id, change) },
-                onDelete = { vm.edit(selected.id) { it.copy(deleted = true) }; vm.selectedId = null },
-                onAI = { speech ->
-                    runCatching { vm.settingsStore.read().also { it.validate() } }
-                        .onSuccess { aiHost = it.baseUrl; aiConsent = selected to speech }
-                        .onFailure { settings = true; vm.message = "먼저 AI 서버 주소와 모델 이름을 설정해 주세요." }
-                }, aiBusy = vm.busy != null)
+            else BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                val home: @Composable () -> Unit = {
+                    HomeScreen(meetings, showTrash, recording.meetingId,
+                        onOpen = { vm.selectedId = it }, onRecord = { title = ""; newMeeting = true },
+                        onImport = { importer.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }, onExample = vm::addExample,
+                        onRestore = { id -> vm.edit(id) { it.copy(deleted = false) } }, busy = working, compact = maxWidth >= 1000.dp)
+                }
+                val detail: @Composable () -> Unit = {
+                    if (selected != null) MeetingScreen(selected, recording, vm.repository.audioFile(selected),
+                        onCommand = ::service, onEdit = { change -> vm.edit(selected.id, change) },
+                        onDelete = { vm.edit(selected.id) { it.copy(deleted = true) }; vm.selectedId = null },
+                        onAI = { speech ->
+                            if (speech && vm.speechMode == SpeechMode.LOCAL) {
+                                if (vm.localModels.installed()) vm.startLocal(install = false, selected)
+                                else { settings = true; vm.message = "한국어 모델을 한 번 설치해 주세요." }
+                            } else {
+                                runCatching { vm.settingsStore.read().also { it.validate() } }
+                                    .onSuccess { approvedSettings = it; aiHost = it.canonicalUrl(); aiConsent = selected to speech }
+                                    .onFailure { settings = true; vm.message = "서버 주소·기기 토큰·모델 이름을 설정해 주세요." }
+                            }
+                        }, aiBusy = working || recording.meetingId != null && recording.meetingId != selected.id,
+                        speechMode = vm.speechMode, onSpeechMode = vm::chooseSpeechMode,
+                        hasLocalProposal = LocalAiService.proposalFile(context, selected.id).baseFile.exists(),
+                        onLocalProposal = { vm.loadLocalProposal(selected.id) })
+                    else Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("회의를 선택하거나 녹음을 시작하세요", style = MaterialTheme.typography.headlineSmall)
+                            SpeechModeSelector(vm.speechMode, vm::chooseSpeechMode, enabled = !working)
+                            Text("로컬과 서버 중 회의에 맞는 전사 방식을 선택할 수 있습니다.", color = Muted)
+                        }
+                    }
+                }
+                if (maxWidth >= 1000.dp) Row(Modifier.fillMaxSize()) {
+                    Box(Modifier.width(340.dp).fillMaxHeight()) { home() }
+                    VerticalDivider()
+                    Box(Modifier.weight(1f).fillMaxHeight()) { detail() }
+                } else if (selected == null) home() else detail()
+            }
         }
     }
     if (newMeeting) AlertDialog(onDismissRequest = { newMeeting = false },
@@ -146,36 +183,39 @@ import work.yunju.tablelog.data.*
             if (Build.VERSION.SDK_INT >= 33) request += Manifest.permission.POST_NOTIFICATIONS
             permissions.launch(request.toTypedArray())
         }) { Text("녹음 시작") } }, dismissButton = { TextButton(onClick = { newMeeting = false }) { Text("취소") } })
-    if (settings) SettingsDialog(vm.settingsStore, onDismiss = { settings = false }, onMessage = { vm.message = it })
-    aiConsent?.let { (m, speech) -> AlertDialog(onDismissRequest = { aiConsent = null },
+    if (settings) SettingsDialog(vm, onDismiss = { settings = false })
+    aiConsent?.let { (m, speech) -> AlertDialog(onDismissRequest = { aiConsent = null; approvedSettings = null },
         title = { Text(if (speech) "음성을 전사할까요?" else "회의록을 작성할까요?") },
         text = { Text("${if (speech) "이 회의의 녹음 파일" else "이 회의의 제목·일시·녹취·메모"}을 다음 서버로 전송합니다. 서버의 이용 요금과 데이터 처리 정책이 적용됩니다.\n\n$aiHost\n\n완료 후 결과를 검토하고 적용할 수 있습니다.") },
-        confirmButton = { Button(onClick = { aiConsent = null; vm.requestAI(m, speech) }) { Text("전송하고 시작") } },
-        dismissButton = { TextButton(onClick = { aiConsent = null }) { Text("취소") } }) }
+        confirmButton = { Button(onClick = { aiConsent = null; approvedSettings?.let { vm.requestAI(m, speech, it) }; approvedSettings = null }) { Text("전송하고 시작") } },
+        dismissButton = { TextButton(onClick = { aiConsent = null; approvedSettings = null }) { Text("취소") } }) }
     vm.proposal?.let { p -> ProposalDialog(p, onDismiss = { vm.proposal = null }, onApply = { vm.applyProposal() }) }
 }
 
 @Composable private fun HomeScreen(
     all: List<Meeting>, trash: Boolean, recordingId: String?, onOpen: (String) -> Unit,
     onRecord: () -> Unit, onImport: () -> Unit, onExample: () -> Unit, onRestore: (String) -> Unit, busy: Boolean,
+    compact: Boolean = false,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     val meetings = all.filter { it.deleted == trash && (it.title.contains(query, true) || it.utterances.any { u -> u.text.contains(query, true) }) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item {
+        if (!compact) item {
             Text(if (trash) "휴지통" else "대화가 남기는 기록", style = MaterialTheme.typography.headlineLarge)
             Spacer(Modifier.height(7.dp))
             Text(if (trash) "보관한 회의는 언제든 복원할 수 있습니다." else "회의의 시작부터, 다음 할 일까지.", color = Muted)
         }
         if (!trash) item {
             Surface(color = Forest, shape = RoundedCornerShape(24.dp)) {
-                Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Column(Modifier.fillMaxWidth().padding(if (compact) 16.dp else 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    if (!compact) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Outlined.GraphicEq, null, tint = Color(0xFFCFE4CF), modifier = Modifier.size(32.dp))
                         Spacer(Modifier.width(10.dp)); Text("RECORD · REMEMBER", color = Color(0xFFCFE4CF), style = MaterialTheme.typography.labelMedium)
                     }
                     Text(if (recordingId != null) "진행 중인 회의가 있어요" else "지금, 이야기를 담아보세요", color = Color.White, style = MaterialTheme.typography.titleLarge)
                     Text("녹음과 메모를 한곳에 보관하고\n필요한 순간 다시 꺼내보세요.", color = Color(0xFFD8E7DF))
+                    }
                     Button(onClick = { if (recordingId != null) onOpen(recordingId) else onRecord() }, enabled = !busy,
                         colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Forest), modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
                         Icon(Icons.Outlined.Mic, null); Spacer(Modifier.width(8.dp)); Text(if (recordingId != null) "녹음 화면으로" else "새 회의 녹음", fontWeight = FontWeight.Bold)

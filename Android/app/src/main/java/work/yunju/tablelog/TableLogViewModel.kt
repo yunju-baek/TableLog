@@ -2,6 +2,8 @@ package work.yunju.tablelog
 
 import android.app.Application
 import android.net.Uri
+import android.content.Intent
+import androidx.core.content.ContextCompat
 import androidx.compose.runtime.*
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -10,18 +12,39 @@ import work.yunju.tablelog.ai.*
 import work.yunju.tablelog.audio.RecordingService
 import work.yunju.tablelog.data.*
 
-data class AIProposal(val meetingId: String, val revision: Int, val utterances: List<Utterance>? = null, val minutes: String? = null)
+data class AIProposal(val meetingId: String, val revision: Int, val utterances: List<Utterance>? = null, val minutes: String? = null, val source: String = "서버")
 
 class TableLogViewModel(application: Application) : AndroidViewModel(application) {
     val app = application as TableLogApplication
     val repository = app.repository
     val settingsStore = SettingsStore(application)
+    var speechMode by mutableStateOf(settingsStore.speechMode())
+        private set
+    val localModels = LocalModelStore(application)
     var selectedId by mutableStateOf<String?>(null)
     var message by mutableStateOf<String?>(null)
     var busy by mutableStateOf<String?>(null)
         private set
     var proposal by mutableStateOf<AIProposal?>(null)
     private var aiJob: Job? = null
+
+    fun chooseSpeechMode(mode: SpeechMode) {
+        if (busy != null || LocalAiService.state.value.running) return
+        runCatching { settingsStore.setSpeechMode(mode); speechMode = mode }.onFailure { message = it.message }
+    }
+    fun startLocal(install: Boolean, meeting: Meeting? = null) {
+        if (busy != null || LocalAiService.state.value.running) return
+        runCatching {
+            check(RecordingService.state.value.meetingId == null) { "녹음을 저장한 뒤 실행해 주세요." }
+            ContextCompat.startForegroundService(app, Intent(app, LocalAiService::class.java)
+                .setAction(if (install) LocalAiService.INSTALL else LocalAiService.TRANSCRIBE).putExtra("meetingId", meeting?.id))
+        }.onFailure { message = it.message ?: "로컬 작업을 시작하지 못했습니다." }
+    }
+    fun loadLocalProposal(id: String) = action {
+        val saved = withContext(Dispatchers.IO) { LocalAiService.readProposal(app, id) }
+        if (saved != null) proposal = AIProposal(saved.id, saved.revision, saved.utterances, source = "태블릿 로컬")
+        else message = "보관된 로컬 전사 결과가 없습니다."
+    }
 
     fun action(block: suspend () -> Unit) = viewModelScope.launch {
         try { block() } catch (e: CancellationException) { throw e }
@@ -74,13 +97,13 @@ class TableLogViewModel(application: Application) : AndroidViewModel(application
         message = "파일을 내보냈습니다."
     }
 
-    fun requestAI(m: Meeting, speech: Boolean) {
-        if (busy != null) return
+    fun requestAI(m: Meeting, speech: Boolean, approvedSettings: AISettings) {
+        if (busy != null || LocalAiService.state.value.running) return
+        if (speech && speechMode != SpeechMode.SERVER) { message = "서버 전사를 사용하려면 전사 방식을 서버로 선택해 주세요."; return }
         aiJob = viewModelScope.launch {
             try {
                 busy = if (speech) "음성 전사 준비 중" else "회의록 작성 중"
-                val settings = withContext(Dispatchers.IO) { settingsStore.read() }
-                val client = AIClient(settings)
+                val client = AIClient(approvedSettings)
                 proposal = if (speech) {
                     val audio = repository.audioFile(m) ?: error("전사할 녹음 파일이 없습니다.")
                     AIProposal(m.id, m.revision, utterances = client.transcribe(audio) { busy = it })
@@ -91,15 +114,19 @@ class TableLogViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun cancelAI() { aiJob?.cancel() }
+    fun cancelAI() {
+        aiJob?.cancel()
+        if (LocalAiService.state.value.running) app.startService(Intent(app, LocalAiService::class.java).setAction(LocalAiService.CANCEL))
+    }
     fun applyProposal() = action {
         val p = proposal ?: return@action
         withContext(Dispatchers.IO) {
             repository.update(p.meetingId) {
-                require(it.revision == p.revision && RecordingService.state.value.meetingId != it.id) { "회의가 변경되었습니다. 현재 내용을 확인한 뒤 AI 요청을 다시 실행해 주세요." }
+                require(!it.deleted && it.revision == p.revision && RecordingService.state.value.meetingId != it.id) { "회의가 변경되었습니다. 현재 내용을 확인한 뒤 AI 요청을 다시 실행해 주세요." }
                 it.copy(utterances = p.utterances ?: it.utterances, minutes = p.minutes ?: it.minutes)
             }
         }
+        if (p.source == "태블릿 로컬") withContext(Dispatchers.IO) { LocalAiService.proposalFile(app, p.meetingId).delete() }
         proposal = null; message = "적용했습니다. 이전 내용은 변경 이력 파일로 보관했습니다."
     }
 }

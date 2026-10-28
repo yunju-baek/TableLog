@@ -63,8 +63,9 @@ class MeetingCodecTest {
     }
     @Test fun remoteSettingsRequireHttpsWithoutEmbeddedCredentials() {
         for (url in listOf("http://example.com/v1", "https://user:pass@example.com/v1", "https://example.com/v1?key=x")) {
-            assertThrows(IllegalArgumentException::class.java) { AISettings(baseUrl = url).validate() }
+            assertThrows(IllegalArgumentException::class.java) { AISettings(baseUrl = url, apiKey = "test-device-token").validate() }
         }
-        AISettings(baseUrl = "https://example.com/v1").validate()
+        assertThrows(IllegalArgumentException::class.java) { AISettings(baseUrl = "https://example.com/v1").validate() }
+        AISettings(baseUrl = "https://example.com/v1", apiKey = "test-device-token").validate()
     }
 }

@@ -26,10 +26,10 @@ class AppFlowTest {
         val app = compose.activity.application as TableLogApplication
         compose.waitUntil(10_000) { app.ready.value }
         // This fixture is explicitly synthetic; no user recordings are used.
-        val fixture = app.repository.save(Meeting(title = "UI 검증 회의", utterances = listOf(Utterance(1, "가상 화자", text = "검증용 발언"))))
-        compose.onNodeWithText("UI 검증 회의").performScrollTo().performClick()
+        val fixture = app.repository.save(Meeting(title = "UI 검증 회의 ${java.util.UUID.randomUUID().toString().take(8)}", utterances = listOf(Utterance(1, "가상 화자", text = "검증용 발언"))))
+        compose.onNodeWithText(fixture.title).performScrollTo().performClick()
         compose.onNodeWithContentDescription("회의 이름 수정").performClick()
-        compose.onNode(hasSetTextAction()).performTextReplacement("UI 수정된 회의")
+        compose.onNode(hasSetTextAction() and hasText("내용")).performTextReplacement("UI 수정된 회의")
         compose.onNodeWithText("저장", useUnmergedTree = true).performClick()
         compose.waitUntil(5_000) { app.repository.get(fixture.id)?.title == "UI 수정된 회의" }
         compose.onNodeWithContentDescription("발언 1 수정").performScrollTo().performClick()

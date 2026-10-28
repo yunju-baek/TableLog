@@ -6,11 +6,11 @@ macOS에서 회의를 녹음하고 화자별 녹취·회의록·참고 자료를
 - [Codex · Claude Code · Gemini CLI 연결](docs/AI_CLI_SETUP.md)
 - [버전 기록](docs/CHANGELOG.md)
 - [음성 엔진 업데이트·화자 모델 비교](docs/ENGINE_UPDATE_2.6.0.md)
-- [Android 앱 0.1.0: 설치·빌드·지원 범위](Android/README.md)
+- [Android 앱 0.2.0: 태블릿 로컬·서버 전사와 인증 설정](Android/README.md)
 
 ## Android 개발 버전
 
-`Android/`에 Kotlin·Jetpack Compose 기반 앱을 추가했습니다. 회의 녹음·일시정지·재생, 발언과 화자 이름 편집, 회의록·메모, Mac 녹취 JSON 가져오기와 내보내기를 지원합니다. AI 전사·회의록은 사용자가 설정한 HTTPS 서버에 명시적으로 요청할 때 실행합니다. macOS의 로컬 음성 모델, 자동 화자 인식, AI CLI, 자료 분석과 자동 동기화는 Android 버전에 포함되지 않습니다. 설치와 검증 범위는 [Android 안내](Android/README.md)를 확인해 주세요.
+`Android/`에 Kotlin·Jetpack Compose 기반 앱을 추가했습니다. 목표 기기는 레노버 TB376FC 13인치 태블릿, RAM 8GB입니다. 회의 녹음·편집·내보내기와 함께 SenseVoice 기반 한국어 로컬 전사 또는 HTTPS 서버 전사를 선택할 수 있습니다. 로컬 모델은 최초 설치 후 인터넷 없이 실행하며, 서버는 기기 토큰과 전송 확인을 사용합니다. 넓은 창에서는 회의 목록과 상세를 함께 표시합니다. 자동 화자 분리·로컬 회의록 요약·Mac 자동 동기화는 아직 없습니다. 설치·인증 설계·검증 범위는 [Android 안내](Android/README.md)를 확인해 주세요.
 
 ## 실행 환경
 

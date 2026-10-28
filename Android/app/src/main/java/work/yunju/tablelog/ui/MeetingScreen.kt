@@ -28,12 +28,15 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.delay
 import work.yunju.tablelog.audio.*
 import work.yunju.tablelog.data.*
+import work.yunju.tablelog.ai.SpeechMode
 import java.io.File
 
 @Composable fun MeetingScreen(
     meeting: Meeting, recording: RecordingState, audio: File?, onCommand: (String) -> Unit,
     onEdit: ((Meeting) -> Meeting) -> Unit, onDelete: () -> Unit,
     onAI: (Boolean) -> Unit, aiBusy: Boolean,
+    speechMode: SpeechMode, onSpeechMode: (SpeechMode) -> Unit,
+    hasLocalProposal: Boolean = false, onLocalProposal: () -> Unit = {},
 ) {
     val active = recording.meetingId == meeting.id
     var tab by rememberSaveable(meeting.id) { mutableIntStateOf(0) }
@@ -60,14 +63,18 @@ import java.io.File
             AudioPlayer(audio, meeting.durationSeconds, seekTo, onSeekHandled = { seekTo = null })
         }
         if (!active && !meeting.deleted) item {
+            SpeechModeSelector(speechMode, onSpeechMode, enabled = !aiBusy)
+            Text(if (speechMode == SpeechMode.LOCAL) "녹음을 태블릿에서 처리 · 서버 전송 없음" else "선택한 서버로 전송 · 실행 전 확인", color = Muted, style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (audio?.exists() == true) OutlinedButton(onClick = { onAI(true) }, enabled = !aiBusy, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Outlined.GraphicEq, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("AI 전사")
+                    Icon(Icons.Outlined.GraphicEq, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(if (speechMode == SpeechMode.LOCAL) "로컬 전사" else "서버 전사")
                 }
                 OutlinedButton(onClick = { onAI(false) }, enabled = !aiBusy && meeting.utterances.isNotEmpty(), modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("AI 회의록")
+                    Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("서버 회의록")
                 }
             }
+            if (hasLocalProposal) TextButton(onClick = onLocalProposal, enabled = !aiBusy) { Text("보관된 로컬 전사 결과 검토") }
         }
         item {
             TabRow(selectedTabIndex = tab, containerColor = Paper) {
@@ -83,7 +90,7 @@ import java.io.File
                         Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Icon(Icons.Outlined.Forum, null, tint = Forest)
                             Text(if (active) "녹음 중에도 발언을 메모하세요" else "대화를 글로 남겨보세요", style = MaterialTheme.typography.titleMedium)
-                            Text(if (active) "이 버전은 음성을 먼저 저장합니다. 녹음 종료 후 AI 전사를 요청하거나 직접 발언을 입력할 수 있습니다." else "직접 발언을 추가하거나, AI 서버를 연결해 녹음을 전사할 수 있습니다. 화자 이름은 직접 지정합니다.", color = Muted)
+                            Text(if (active) "음성을 먼저 저장합니다. 녹음 종료 후 로컬 또는 서버 전사를 선택할 수 있습니다." else "로컬 또는 서버에서 녹음을 전사하거나 직접 발언을 추가하세요. 화자 이름은 직접 지정합니다.", color = Muted)
                         }
                     }
                 }

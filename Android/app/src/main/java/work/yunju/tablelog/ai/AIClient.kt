@@ -20,10 +20,11 @@ import kotlin.coroutines.resumeWithException
 /** Optional server contract: /audio/transcriptions and /chat/completions, both under the configured base URL. */
 class AIClient(private val settings: AISettings, private val client: OkHttpClient = defaultClient()) {
 
-    private suspend fun post(path: String, body: RequestBody): String {
+    private suspend fun post(path: String, body: RequestBody? = null): String {
         settings.validate()
-        val request = Request.Builder().url(settings.baseUrl.trim().trimEnd('/') + path).post(body).apply {
-            if (settings.apiKey.isNotBlank()) header("Authorization", "Bearer ${settings.apiKey}")
+        val request = Request.Builder().url(settings.canonicalUrl() + path).apply {
+            if (body != null) post(body) else get()
+            header("Authorization", "Bearer ${settings.apiKey}")
         }.build()
         return suspendCancellableCoroutine { continuation ->
             val call = client.newCall(request)
@@ -35,7 +36,9 @@ class AIClient(private val settings: AISettings, private val client: OkHttpClien
                 override fun onResponse(call: Call, response: Response) {
                     val result = runCatching {
                         response.use {
-                            check(it.isSuccessful) { "서버가 요청을 처리하지 못했습니다. HTTP ${it.code}. 서버 주소·모델·인증 정보를 확인해 주세요." }
+                            check(it.code != 401) { "서버 인증이 만료되었거나 토큰이 잘못되었습니다. 기기 토큰을 다시 등록해 주세요." }
+                            check(it.code != 403) { "이 기기에 요청 권한이 없습니다. 서버의 기기 권한을 확인해 주세요." }
+                            check(it.isSuccessful) { "서버가 요청을 처리하지 못했습니다. HTTP ${it.code}. 서버 주소와 모델 설정을 확인해 주세요." }
                             val body = it.body ?: error("서버 응답이 비어 있습니다.")
                             val output = ByteArrayOutputStream()
                             val input = body.byteStream()
@@ -52,6 +55,11 @@ class AIClient(private val settings: AISettings, private val client: OkHttpClien
                 }
             })
         }
+    }
+
+    suspend fun checkConnection(): String {
+        val data = JSONObject(post("/models")).getJSONArray("data")
+        return "HTTPS 연결·모델 목록 응답 확인 (${data.length()}개). 실제 전사 품질은 별도 확인이 필요합니다."
     }
 
     suspend fun transcribe(file: File, progress: (String) -> Unit): List<Utterance> {

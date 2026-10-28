@@ -55,6 +55,7 @@ class RecordingService : Service() {
                 try {
                     check(ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) { "마이크 권한이 필요합니다." }
                     check((application as TableLogApplication).ready.value) { "회의 목록을 불러온 뒤 다시 시도해 주세요." }
+                    check(!work.yunju.tablelog.ai.LocalAiService.state.value.running) { "로컬 AI 작업을 완료하거나 취소한 뒤 녹음해 주세요." }
                     val notification = notification(false)
                     if (Build.VERSION.SDK_INT >= 30) startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
                     else startForeground(1, notification)

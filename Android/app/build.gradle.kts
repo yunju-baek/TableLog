@@ -10,8 +10,9 @@ android {
         applicationId = "work.yunju.tablelog"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
@@ -22,7 +23,14 @@ android {
     buildFeatures { compose = true }
     buildTypes { release { isMinifyEnabled = false } }
 }
+val sherpaAar = layout.buildDirectory.file("dependencies/sherpa-onnx-2.0.1.aar")
+val prepareSherpa by tasks.registering(Exec::class) {
+    inputs.file(rootProject.file("scripts/fetch-sherpa.py"))
+    outputs.file(sherpaAar)
+    commandLine("python3", rootProject.file("scripts/fetch-sherpa.py"), "--output", sherpaAar.get().asFile)
+}
 dependencies {
+    implementation(files(sherpaAar).builtBy(prepareSherpa))
     val composeBom = platform("androidx.compose:compose-bom:2025.10.01")
     implementation(composeBom)
     androidTestImplementation(composeBom)

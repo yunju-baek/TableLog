@@ -27,3 +27,4 @@ Android/local.properties
 Android/*.jks
 Android/*.keystore
 Android/verification-local/
+Android/scripts/__pycache__/
