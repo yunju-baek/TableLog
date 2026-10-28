@@ -6,6 +6,11 @@ macOS에서 회의를 녹음하고 화자별 녹취·회의록·참고 자료를
 - [Codex · Claude Code · Gemini CLI 연결](docs/AI_CLI_SETUP.md)
 - [버전 기록](docs/CHANGELOG.md)
 - [음성 엔진 업데이트·화자 모델 비교](docs/ENGINE_UPDATE_2.6.0.md)
+- [Android 앱 0.1.0: 설치·빌드·지원 범위](Android/README.md)
+
+## Android 개발 버전
+
+`Android/`에 Kotlin·Jetpack Compose 기반 앱을 추가했습니다. 회의 녹음·일시정지·재생, 발언과 화자 이름 편집, 회의록·메모, Mac 녹취 JSON 가져오기와 내보내기를 지원합니다. AI 전사·회의록은 사용자가 설정한 HTTPS 서버에 명시적으로 요청할 때 실행합니다. macOS의 로컬 음성 모델, 자동 화자 인식, AI CLI, 자료 분석과 자동 동기화는 Android 버전에 포함되지 않습니다. 설치와 검증 범위는 [Android 안내](Android/README.md)를 확인해 주세요.
 
 ## 실행 환경
 
