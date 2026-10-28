@@ -1,4 +1,4 @@
-# 테이블로그 2.8.0
+# 테이블로그 2.9.0
 
 macOS에서 회의를 녹음하고 화자별 녹취·회의록·참고 자료를 정리하는 앱입니다. 자연어 편집 채팅으로 문장과 화자를 수정하고, AI CLI를 선택해 교정·요약·자료 분석에 사용할 수 있습니다.
 
@@ -9,7 +9,7 @@ macOS에서 회의를 녹음하고 화자별 녹취·회의록·참고 자료를
 
 ## 실행 환경
 
-macOS 26, Apple Silicon, Xcode Command Line Tools가 필요합니다. 현재 버전은 2.8.0, 빌드 34입니다.
+macOS 26, Apple Silicon, Xcode Command Line Tools가 필요합니다. 현재 버전은 2.9.0, 빌드 35입니다.
 
 로컬 음성 인식·화자 분리는 NVIDIA Nemotron, 등록 목소리 비교는 TitaNet을 사용합니다. AI 문맥 처리는 설치된 Codex, Claude Code, Gemini CLI 가운데 하나를 선택합니다. 각 CLI의 로그인 계정과 사용 한도가 적용됩니다.
 

@@ -137,6 +137,65 @@ final class ControlledMicrophone: MicrophoneCapturing {
         check(loaded.context.documents[0].id==materials.context.documents[0].id,"material edit survives reopen")
         try materialReceipt.undo();check(materials.context.documents[0].id==original.id,"material undo restores selection")
 
+        // Text materials, multi-material transactions and compatibility use isolated synthetic data.
+        let oldPlan=try JSONDecoder().decode(EditingPlan.self,from:Data(#"{"answer":"이전 대화","changes":[]}"#.utf8))
+        check(oldPlan.newMaterials.isEmpty && oldPlan.changeCount==0,"old saved editing plans remain readable")
+        let pasted="  \n회의 배경\n\n"+String(repeating:"자료 내용과 숫자 30을 보존합니다.\n",count:75)
+        let textID=try materials.addText(title:"",text:pasted)
+        let secondID=try materials.addText(title:"회의 배경",text:"예산은 3000만원, 일정은 11월입니다.")
+        let textDocument=materials.context.documents.first{$0.id==textID}!
+        check(textID != secondID && materials.context.documents.count==3,"multiple pasted materials coexist with file material and duplicate titles")
+        check(textDocument.title=="회의 배경" && textDocument.chunks.count>1 && textDocument.chunks.map(\.text).joined()==pasted,"pasted text title and all chunk boundaries preserve content")
+        check(try String(contentsOfFile:textDocument.originalPath,encoding:.utf8)==pasted,"pasted original preserves whitespace and line breaks")
+        check(MeetingMaterials(root:materialRoot).context.documents.count==3,"all pasted materials survive reopen")
+        check(minutes.materialContext.documents.count==3,"pasted material updates active meeting context")
+        materials.select(secondID,enabled:false)
+        check(materials.context.documents.count==2 && materials.context.documents.contains{$0.id==textID},"material selections are independent")
+        materials.select(secondID,enabled:true)
+        expectFailure("blank pasted text rejected") { _=try materials.addText(title:"빈 자료",text:" \n ") }
+        expectFailure("oversized pasted text rejected") { _=try materials.addText(title:"긴 자료",text:String(repeating:"가",count:200_001)) }
+        expectFailure("multiline material title rejected") { _=try materials.addText(title:"두\n줄",text:"본문") }
+        let multiCapture=model.editingSnapshot()
+        let targetA=multiCapture.documents.first{$0.sourceID==textID.uuidString}!
+        let targetB=multiCapture.documents.first{$0.sourceID==secondID.uuidString}!
+        let multiPlan=EditingPlan(answer:"자료 변경안",changes:[
+            .init(targetID:targetA.id,before:targetA.text,after:targetA.text+"\n추가 배경입니다.",speaker:-1),
+            .init(targetID:targetB.id,before:targetB.text,after:"예산은 3000만원, 일정은 12월입니다.",speaker:-1)
+        ],additions:[.init(title:"후속 검토",text:"참고 자료를 다음 회의 전에 확인합니다.")])
+        let multiReceipt=try model.applyEditingPlan(multiPlan,capture:multiCapture)
+        check(materials.context.documents.count==4 && materials.context.documents.contains{$0.title=="후속 검토"},"chat applies multiple material updates and additions together")
+        check(materials.context.documents.contains{$0.chunks.contains{$0.text.contains("12월")}},"chat updates requested material facts")
+        check(materials.documents.first{$0.id==textID}?.currentVersion==false && materials.documents.first{$0.id==secondID}?.currentVersion==false,"edited originals become archived versions")
+        check(materials.context.documents.contains(original) && materials.context.documents.first{$0.supersedesID==textID}?.chunks.dropFirst().map(\.text)==textDocument.chunks.dropFirst().map(\.text),"multi-material edits preserve unrelated materials and chunks")
+        check(MeetingMaterials(root:materialRoot).context.documents.count==4,"chat additions and updates persist together")
+        expectFailure("stale multi-material proposal applies no duplicate additions") { _=try model.applyEditingPlan(multiPlan,capture:multiCapture) }
+        let unrelatedID=try materials.addText(title:"독립 자료",text:"뒤이어 추가한 내용을 보존합니다.")
+        try multiReceipt.undo()
+        check(materials.context.documents.contains{$0.id==textID} && materials.context.documents.contains{$0.id==secondID} && materials.context.documents.contains{$0.id==unrelatedID} && !materials.context.documents.contains{$0.title=="후속 검토"},"batch undo restores originals and retains unrelated later additions")
+        let addCapture=model.editingSnapshot()
+        let onlyAdd=EditingPlan(answer:"자료 추가안",changes:[],additions:[.init(title:"채팅 자료",text:"새로 추가할 배경입니다.")])
+        let addReceipt=try model.applyEditingPlan(onlyAdd,capture:addCapture)
+        check(onlyAdd.changeCount==1 && materials.context.documents.contains{$0.title=="채팅 자료"},"addition-only chat plan applies")
+        try addReceipt.undo()
+        check(!materials.context.documents.contains{$0.title=="채팅 자료"},"addition-only undo removes selected addition")
+        let emptyCapture=EditingSnapshot(sessionID:UUID(),documents:[])
+        try onlyAdd.validate(in:emptyCapture)
+        check(true,"new materials can be proposed before any transcript exists")
+        expectFailure("addition proposal from another session rejected") { try onlyAdd.validateCurrent(captured:emptyCapture,current:model.editingSnapshot()) }
+        let transcriptTarget=model.editingSnapshot().documents.first{$0.kind == .transcript}!
+        expectFailure("mixed transcript and material creation rejected") {
+            try EditingPlan(answer:"",changes:plan(transcriptTarget,"수정 문장").changes,additions:onlyAdd.additions).validate(in:model.editingSnapshot())
+        }
+        let beforeFailed=materials.documents
+        expectFailure("invalid addition rolls back whole batch") {
+            _=try materials.applyMaterialChanges(replacements:[textID:[textDocument.chunks[0].id:"일괄 변경"]],additions:[.init(title:"유효",text:"본문"),.init(title:"빈 내용",text:" ")])
+        }
+        check(materials.documents==beforeFailed,"failed batch preserves the material library")
+        let writeFailure=MeetingMaterials(root:root.appendingPathComponent("BlockedMaterials"))
+        try Data("파일로 막힌 저장 위치".utf8).write(to:writeFailure.root)
+        expectFailure("text storage failure is reported") { _=try writeFailure.addText(title:"저장 실패",text:"검증용 본문") }
+        check(writeFailure.documents.isEmpty,"text storage failure leaves selection unchanged")
+
         // Exercise the main-screen observer across async generation, without an AI/network call.
         let generationRoot=root.appendingPathComponent("GenerationStatus")
         let controlled=SuspendedMinutesGenerator()
@@ -404,6 +463,21 @@ final class ControlledMicrophone: MicrophoneCapturing {
         for _ in 0..<200 where !quitFinished { try await Task.sleep(for: .milliseconds(10)) }
         check(quitFinished, "quit from pause drains and releases engine resources")
         print("RESULT: \(passed) checks passed")
+        if CommandLine.arguments.contains("--live-materials") {
+            var liveSettings=CodexCorrectionSettings();liveSettings.selectProvider(.codex)
+            print("LIVE MATERIALS START: synthetic references only");fflush(stdout)
+            let liveCapture=model.editingSnapshot()
+            let addition=try await EditingChatGenerator.generate("다음 두 내용을 별도의 회의자료로 추가해 줘. 첫 자료 제목은 검증용 일정, 본문은 '워크숍은 11월 5일 진행 예정입니다.' 둘째 제목은 검증용 예산, 본문은 '검토 중인 예산은 100만원입니다.'",snapshot:liveCapture,history:[],settings:liveSettings)
+            check(addition.newMaterials.count==2 && addition.changes.isEmpty,"live Codex proposes two new materials")
+            let added=try model.applyEditingPlan(addition,capture:liveCapture)
+            let updateCapture=model.editingSnapshot()
+            let update=try await EditingChatGenerator.generate("회의자료 두 개를 함께 업데이트해 줘. '검증용 일정'의 11월 5일을 11월 12일로, '검증용 예산'의 100만원을 120만원으로 바꿔 줘. 예정과 검토 중이라는 표현은 유지해 줘.",snapshot:updateCapture,history:[],settings:liveSettings)
+            check(update.changes.count==2 && update.newMaterials.isEmpty,"live Codex targets two existing materials")
+            let updated=try model.applyEditingPlan(update,capture:updateCapture)
+            check(materials.context.documents.contains{$0.title.hasPrefix("검증용 일정") && $0.chunks.contains{$0.text.contains("11월 12일")}} && materials.context.documents.contains{$0.title.hasPrefix("검증용 예산") && $0.chunks.contains{$0.text.contains("120만원")}},"live Codex material updates applied")
+            try updated.undo();try added.undo()
+            print("LIVE MATERIALS RESULT: 3 checks passed");fflush(stdout)
+        }
         if CommandLine.arguments.contains("--live-all") {
             var failures=0
             for provider in AITextProvider.allCases {

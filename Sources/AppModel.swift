@@ -1878,7 +1878,7 @@ extension AppModel {
         return EditingSnapshot(sessionID:session,documents:documents)
     }
     func applyEditingPlan(_ plan: EditingPlan, capture: EditingSnapshot) throws -> EditingReceipt {
-        guard !closing, !plan.changes.isEmpty else { throw EditingError.unavailable }
+        guard !closing, plan.changeCount > 0 else { throw EditingError.unavailable }
         try plan.validateCurrent(captured:capture,current:editingSnapshot())
         let pairs=plan.changes.compactMap { change -> (EditingChange,EditingDocument)? in
             capture.documents.first(where:{$0.id==change.targetID}).map { (change,$0) }
@@ -1886,15 +1886,20 @@ extension AppModel {
         if let (change,document)=pairs.first, document.kind == .minutes {
             return try meeting.applyChatDraft(change.after,expected:change.before)
         }
-        if let (_,document)=pairs.first, document.kind == .material,
-           let source=document.sourceID, let id=UUID(uuidString:source),
-           let material=materials.context.documents.first(where:{$0.id==id}) {
-            var replacements:[String:String]=[:]
-            for (change,_) in pairs {
+        if !plan.newMaterials.isEmpty || pairs.first?.1.kind == .material {
+            var replacements:[UUID:[String:String]]=[:]
+            for (change,document) in pairs {
+                guard let source=document.sourceID, let id=UUID(uuidString:source),
+                      let material=materials.context.documents.first(where:{$0.id==id}) else { throw EditingError.stale }
                 guard let chunk=material.chunks.first(where:{"material.\(id.uuidString).\($0.id)"==change.targetID}) else { throw EditingError.stale }
-                replacements[chunk.id]=change.after
+                replacements[id,default:[:]][chunk.id]=change.after
             }
-            return try materials.applyChatEdits(documentID:id,replacements:replacements)
+            let receipt=try materials.applyMaterialChanges(replacements:replacements,additions:plan.newMaterials)
+            let sessionID=session
+            return EditingReceipt(note:receipt.note,url:receipt.url) { [weak self] in
+                guard let self, !self.closing, self.session==sessionID else { throw EditingError.stale }
+                try receipt.undo()
+            }
         }
         let beforeText=transcriptEdits, beforeManual=manualTranscriptEdits, beforeNames=speakerNames
         let beforeBindings=meeting.bindings, beforeVoiceNames=voiceNameAssignments

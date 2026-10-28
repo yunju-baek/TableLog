@@ -9,7 +9,7 @@ struct EditingConversationView: View {
             if chat.entries.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("말하듯 요청하면, 기록을 다듬어요.").assistantFont(14, weight: .semibold)
-                    Text("“예산을 설명한 발언을 화자 2로 바꿔 줘”\n“녹취의 오타를 다듬어 줘”\n“회의록을 결정 사항 중심으로 정리해 줘”")
+                    Text("“예산을 설명한 발언을 화자 2로 바꿔 줘”\n“회의록을 결정 사항 중심으로 정리해 줘”\n“이 내용을 ‘회의 배경’ 자료로 추가해 줘”\n“‘사업계획’ 자료의 일정을 11월로 수정해 줘”")
                         .assistantFont(11).lineSpacing(6).foregroundStyle(AppTheme.muted)
                     Text("수정안을 확인하고 적용하면 기록에 반영됩니다.")
                         .assistantFont(10).foregroundStyle(AppTheme.muted)
@@ -33,11 +33,18 @@ struct EditingConversationView: View {
                 HStack(spacing: 7) { ProgressView().controlSize(.regular); Text("자료를 살펴보고 있어요…").assistantFont(11) }
             }
             if !entry.answer.isEmpty { Text(entry.answer).assistantFont(13).textSelection(.enabled).lineSpacing(5) }
-            if let plan = entry.plan, !plan.changes.isEmpty {
-                DisclosureGroup("변경 \(plan.changes.count)개 · 전후 비교") {
+            if let plan = entry.plan, plan.changeCount > 0 {
+                DisclosureGroup("변경 \(plan.changeCount)개 · 전후 비교") {
                     VStack(alignment: .leading, spacing: 12) {
                         ForEach(plan.changes) { change in
                             changeRow(change, snapshot: entry.snapshot)
+                        }
+                        ForEach(Array(plan.newMaterials.enumerated()), id: \.offset) { _, material in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Label("새 자료 · " + material.title, systemImage: "doc.badge.plus").assistantFont(11, weight: .semibold)
+                                Text(material.text).assistantFont(13).textSelection(.enabled)
+                            }.padding(9).frame(maxWidth:.infinity,alignment:.leading)
+                                .background(.white,in:RoundedRectangle(cornerRadius:8))
                         }
                     }.padding(.top, 8)
                 }.assistantFont(11)

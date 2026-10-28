@@ -475,37 +475,74 @@ struct MaterialContext: Codable, Equatable {
 
 
 extension MeetingMaterials {
+    @discardableResult
+    func addText(title: String, text: String) throws -> UUID {
+        let value = EditingMaterialAddition.pasted(title: title, text: text)
+        _ = try applyMaterialChanges(replacements: [:], additions: [value])
+        return documents.last!.id
+    }
+
     func applyChatEdits(documentID: UUID, replacements: [String: String]) throws -> EditingReceipt {
-        guard !busy, !loadFailed, let index=documents.firstIndex(where: { $0.id==documentID && $0.enabled && $0.currentVersion }) else { throw EditingError.unavailable }
-        let original=documents[index], previous=documents, id=UUID()
-        guard Set(replacements.keys).isSubset(of:Set(original.chunks.map(\.id))) else { throw EditingError.stale }
-        let folder=root.appendingPathComponent(id.uuidString), url=folder.appendingPathComponent("edited.md")
-        let chunks=original.chunks.enumerated().map { index, chunk in
-            MaterialChunk(id:id.uuidString+"-"+String(index),location:chunk.location,text:replacements[chunk.id] ?? chunk.text)
+        try applyMaterialChanges(replacements: [documentID: replacements], additions: [])
+    }
+
+    /// Commit all material changes together so a multi-document proposal has one apply/undo boundary.
+    func applyMaterialChanges(replacements: [UUID: [String: String]], additions: [EditingMaterialAddition]) throws -> EditingReceipt {
+        guard !busy, !loadFailed, !replacements.isEmpty || !additions.isEmpty else { throw EditingError.unavailable }
+        for addition in additions { try addition.validate() }
+        let previous = documents
+        var next = documents
+        var originals: [MeetingMaterial] = [], created: [MeetingMaterial] = [], folders: [URL] = []
+        var committed = false
+        defer { if !committed { for folder in folders { try? FileManager.default.removeItem(at: folder) } } }
+        for documentID in replacements.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
+            guard let edits = replacements[documentID], !edits.isEmpty,
+                  let index = next.firstIndex(where: { $0.id == documentID && $0.enabled && $0.currentVersion }) else { throw EditingError.unavailable }
+            let original = next[index], id = UUID()
+            guard Set(edits.keys).isSubset(of: Set(original.chunks.map(\.id))),
+                  edits.values.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.count <= 200_000 }) else { throw EditingError.stale }
+            let folder = root.appendingPathComponent(id.uuidString), url = folder.appendingPathComponent("edited.md")
+            folders.append(folder)
+            let chunks = original.chunks.enumerated().map { index, chunk in
+                MaterialChunk(id: id.uuidString + "-" + String(index), location: chunk.location, text: edits[chunk.id] ?? chunk.text)
+            }
+            let markdown = chunks.map { "## " + $0.location + "\n\n" + $0.text }.joined(separator: "\n\n")
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try Data(markdown.utf8).write(to: url, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            let copy = MeetingMaterial(id: id, title: original.title.hasSuffix(" · 편집본") ? original.title : original.title + " · 편집본",
+                origin: original.origin, importedAt: Date(), hash: AssistantFiles.hash(markdown), originalPath: original.originalPath,
+                extractedPath: url.path, chunks: chunks, warnings: ["채팅으로 수정한 텍스트 편집본 · 원본 파일 별도 보관"],
+                version: (original.version ?? 1) + 1, supersedesID: original.id, isCurrentVersion: true)
+            originals.append(original)
+            next[index].enabled = false; next[index].isCurrentVersion = false
+            next.append(copy); created.append(copy)
         }
-        let markdown=chunks.map { "## " + $0.location + "\n\n" + $0.text }.joined(separator:"\n\n")
-        try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
-        try Data(markdown.utf8).write(to:url,options:.atomic)
-        try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:url.path)
-        var copy=MeetingMaterial(id:id,title:original.title.hasSuffix(" · 편집본") ? original.title : original.title+" · 편집본",
-            origin:original.origin,importedAt:Date(),hash:AssistantFiles.hash(markdown),originalPath:original.originalPath,
-            extractedPath:url.path,chunks:chunks,warnings:["채팅으로 수정한 텍스트 편집본 · 원본 파일 별도 보관"],
-            version:(original.version ?? 1)+1,supersedesID:original.id,isCurrentVersion:true)
-        copy.enabled=true
-        documents[index].enabled=false;documents[index].isCurrentVersion=false
-        let archived=documents[index]
-        documents.append(copy)
-        do { try save() } catch { documents=previous;throw error }
-        didChange?();status="자료 편집본 저장 완료"
-        return EditingReceipt(note:"‘\(copy.title)’을 저장하고 회의 자료에 연결했습니다.",url:url) { [weak self] in
+        for addition in additions {
+            let id = UUID()
+            folders.append(root.appendingPathComponent(id.uuidString))
+            let document = try addition.write(id: id, root: root)
+            next.append(document); created.append(document)
+        }
+        documents = next
+        do { try save() } catch { documents = previous; throw error }
+        committed = true
+        error = nil; status = "회의자료 \(replacements.count)개 수정 · \(additions.count)개 추가 · \(context.documents.count)개 선택"
+        didChange?()
+        let changedIDs = Set(originals.map(\.id) + created.map(\.id))
+        let expected = next.filter { changedIDs.contains($0.id) }
+        let createdIDs = Set(created.map(\.id))
+        return EditingReceipt(note: status, url: created.count == 1 ? URL(fileURLWithPath: created[0].extractedPath) : nil) { [weak self] in
             guard let self, !self.busy,
-                  let editedIndex=self.documents.firstIndex(where:{$0.id==id}), self.documents[editedIndex]==copy,
-                  let originalIndex=self.documents.firstIndex(where:{$0.id==original.id}), self.documents[originalIndex]==archived
-            else { throw EditingError.stale }
-            let current=self.documents
-            self.documents[originalIndex]=original;self.documents.remove(at:editedIndex)
-            do { try self.save() } catch { self.documents=current;throw error }
-            self.didChange?();self.status="자료 편집을 되돌렸습니다. 편집 파일은 저장 폴더에 보관합니다."
+                  self.documents.filter({ changedIDs.contains($0.id) }) == expected else { throw EditingError.stale }
+            let current = self.documents
+            self.documents.removeAll { createdIDs.contains($0.id) }
+            for original in originals {
+                guard let index = self.documents.firstIndex(where: { $0.id == original.id }) else { self.documents = current; throw EditingError.stale }
+                self.documents[index] = original
+            }
+            do { try self.save() } catch { self.documents = current; throw error }
+            self.didChange?(); self.status = "자료 변경을 되돌렸습니다. 저장 파일은 보관합니다."
         }
     }
 }

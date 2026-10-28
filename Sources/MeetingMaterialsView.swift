@@ -6,10 +6,13 @@ struct MeetingMaterialsView: View {
     @State private var url=""
     @State private var selected: UUID?
     @State private var showVersions=false
+    @State private var showTextEntry=false
     var body: some View {
         VStack(alignment:.leading,spacing:12) {
             HStack {
-                Button("파일 추가 · PDF / 이미지 / TXT / MD") { materials.pickFiles(provider:model.meeting.provider,settings:model.codexSettings) }
+                Button("텍스트 추가",systemImage:"text.badge.plus") { showTextEntry=true }
+                Button("파일 추가",systemImage:"doc.badge.plus") { materials.pickFiles(provider:model.meeting.provider,settings:model.codexSettings) }
+                    .help("PDF · 이미지 · TXT · MD 파일을 여러 개 선택할 수 있습니다.")
                 Button("폴더 연결",systemImage:"folder.badge.plus") { materials.pickFolders(provider:model.meeting.provider,settings:model.codexSettings) }
                 Spacer()
                 Button("맥락 분석 재시도") { materials.analyze(provider:model.meeting.provider,settings:model.codexSettings) }.disabled(materials.busy || materials.context.documents.isEmpty)
@@ -19,7 +22,7 @@ struct MeetingMaterialsView: View {
                 TextField("자료 URL · https://…",text:$url).textFieldStyle(.roundedBorder)
                 Button("URL 추가") { materials.importURL(url,provider:model.meeting.provider,settings:model.codexSettings) }.disabled(url.isEmpty)
             }
-            Text("선택한 자료를 이번 회의에 사용합니다. 녹음 중 추가한 자료는 이후 교정과 회의록에 반영됩니다. 자료 용어의 음성 엔진 반영은 녹음 시작 시 적용됩니다.")
+            Text("텍스트·파일·URL 자료를 여러 개 추가하고 함께 선택할 수 있습니다. 녹음 중 추가한 자료는 이후 교정과 회의록에 반영됩니다. AI 채팅에 자료 이름과 변경 내용을 적으면 추가·수정안을 확인하고 적용할 수 있습니다.")
                 .font(.caption).foregroundStyle(AppTheme.muted)
             Text(model.meeting.provider == .codex ? "맥락 분석·회의록 작성: \(model.codexSettings.provider.title) · 선택 자료의 추출문과 발언을 \(model.codexSettings.provider.destination)로 전달합니다." : "맥락 분석을 사용하려면 ‘회의 설정·참석자’에서 ‘선택한 AI CLI’를 선택하세요.")
                 .font(.caption).foregroundStyle(AppTheme.muted)
@@ -66,11 +69,15 @@ struct MeetingMaterialsView: View {
                 }
             }
             Divider()
-            Toggle("이전 자료 버전 함께 보기",isOn:$showVersions).font(.caption)
+            HStack {
+                Text("이번 회의에 \(materials.context.documents.count)개 선택 · 보관 자료 \(materials.currentDocuments.count)개").font(.subheadline.weight(.semibold))
+                Spacer()
+                Toggle("이전 자료 버전 함께 보기",isOn:$showVersions).font(.caption)
+            }
             HSplitView {
                 ScrollView {
                     VStack(alignment:.leading,spacing:10) {
-                        if materials.documents.isEmpty { Text("회의 안건, 제안서, 참고 이미지와 웹 자료를 추가하세요.").foregroundStyle(.secondary).padding() }
+                        if materials.documents.isEmpty { Text("회의 안건과 배경을 텍스트로 붙여넣거나 파일·웹 자료를 추가하세요.").foregroundStyle(.secondary).padding() }
                         ForEach(showVersions ? materials.documents : materials.currentDocuments) { doc in
                             VStack(alignment:.leading,spacing:6) {
                                 Toggle(doc.title,isOn:Binding(get:{doc.enabled},set:{materials.select(doc.id,enabled:$0)})).disabled(materials.busy || !doc.currentVersion)
@@ -103,5 +110,8 @@ struct MeetingMaterialsView: View {
                 }.frame(minWidth:330)
             }
         }.tint(AppTheme.violet)
+            .sheet(isPresented:$showTextEntry) {
+                TextMaterialEntryView(materials:materials) { id in selected=id }
+            }
     }
 }
