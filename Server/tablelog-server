@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+tablelog_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+tablelog_python=${TABLELOG_PYTHON:-"$HOME/Library/Application Support/CoworkPython/envs/fish-audio-s2/bin/python"}
+exec "$tablelog_python" "$tablelog_dir/server.py" "$@"

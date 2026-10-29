@@ -28,3 +28,6 @@ Android/*.jks
 Android/*.keystore
 Android/verification-local/
 Android/scripts/__pycache__/
+Server/__pycache__/
+*.sqlite3
+*.sqlite3-*

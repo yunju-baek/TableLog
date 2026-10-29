@@ -39,6 +39,7 @@ import work.yunju.tablelog.data.timeLabel
     var error by remember { mutableStateOf(if (initial.isFailure) "저장된 인증 정보를 읽지 못했습니다. 다시 등록하거나 연결을 지워 주세요." else null) }
     var connection by remember { mutableStateOf<String?>(null) }
     var checking by remember { mutableStateOf(false) }
+    var pairingCode by remember { mutableStateOf("") }
     var installConsent by remember { mutableStateOf(false) }
     val locked = local.running || vm.busy != null || checking
     val installed = vm.localModels.installed()
@@ -60,6 +61,31 @@ import work.yunju.tablelog.data.timeLabel
                 TextButton(onClick = { uriHandler.openUri("https://huggingface.co/FunAudioLLM/SenseVoiceSmall") }) { Text("모델 출처·이용 조건") }
                 HorizontalDivider()
                 Text("서버 연결", style = MaterialTheme.typography.titleLarge)
+                OutlinedButton(onClick = {
+                    if (AISettings(url).canonicalUrl() != ServerPairing.MAC_STUDIO_URL) key = ""
+                    url = ServerPairing.MAC_STUDIO_URL; speech = ServerPairing.MAC_STUDIO_MODEL
+                    model = ""; connection = null; error = null
+                }, enabled = !locked) { Text("맥스튜디오 선택") }
+                Text("맥스튜디오는 한국어 음성 전사를 처리합니다. 회의록 자동 요약은 별도 회의록 모델을 갖춘 서버가 필요합니다.", color = Muted)
+                OutlinedTextField(pairingCode, { pairingCode = it }, modifier = Modifier.fillMaxWidth(), enabled = !locked,
+                    label = { Text("맥에서 발급한 일회용 연결 코드") }, placeholder = { Text("ABCD-EFGH-JKLM") }, singleLine = true,
+                    visualTransformation = PasswordVisualTransformation())
+                Button(onClick = {
+                    checking = true; error = null; connection = null
+                    val target = url; val code = pairingCode
+                    scope.launch {
+                        try {
+                            val paired = ServerPairing().connect(target, code)
+                            store.save(paired)
+                            url = paired.baseUrl; speech = paired.speechModel; model = paired.textModel; key = paired.apiKey
+                            pairingCode = ""; vm.chooseSpeechMode(SpeechMode.SERVER)
+                            connection = "맥스튜디오 연결을 저장했습니다. 기기 연결은 30일간 유효합니다."
+                        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                        catch (e: Exception) { error = e.message }
+                        finally { checking = false }
+                    }
+                }, enabled = !locked && pairingCode.isNotBlank()) { Text("코드로 연결·저장") }
+                Text("맥에서 Server/tablelog-server issue-code 명령으로 코드를 발급합니다. 다른 서버는 아래 주소와 기기 토큰을 직접 입력할 수 있습니다.", style = MaterialTheme.typography.bodySmall, color = Muted)
                 Text("서버가 발급한 이 기기 전용 토큰을 등록하세요. 외부 AI 서비스의 키는 서버에서 관리하는 구성을 권장합니다.", color = Muted)
                 OutlinedTextField(url, { next ->
                     if (AISettings(next).canonicalUrl() != AISettings(url).canonicalUrl()) key = ""
@@ -95,7 +121,7 @@ import work.yunju.tablelog.data.timeLabel
                             .onSuccess { vm.message = "서버 연결을 저장했습니다."; onDismiss() }.onFailure { error = it.message }
                     }, enabled = !locked) { Text("서버 연결 저장") }
                 }
-                Text("Android 0.2.0 · TB376FC 8GB 기준. 로컬 전사는 녹음 종료 후 실행합니다. 자동 화자 분리와 로컬 회의록 요약은 아직 제공하지 않습니다.", style = MaterialTheme.typography.bodySmall, color = Muted)
+                Text("Android 0.3.0 · 로컬 전사는 녹음 종료 후 실행합니다. 자동 화자 분리와 로컬 회의록 요약은 아직 제공하지 않습니다.", style = MaterialTheme.typography.bodySmall, color = Muted)
                 TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("닫기") }
             }
         }

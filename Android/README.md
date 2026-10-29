@@ -1,16 +1,18 @@
-# 테이블로그 Android 0.2.0
+# 테이블로그 Android 0.3.0
 
 회의를 녹음하고 발언·회의록·메모를 기기에 보관하는 Kotlin·Jetpack Compose 앱입니다. 주 대상은 **레노버 샤오신패드 프로 13(TB376FC), RAM 8GB**입니다. 전사 방식은 **태블릿 로컬 / 서버** 중 직접 선택하며, 오류가 나도 다른 방식으로 자동 전환하지 않습니다.
 
 ## 설치와 첫 사용
 
-현재 APK는 테스트용 debug 빌드이며 Android 8.0(API 26) 이상의 arm64·x86_64 기기를 지원합니다. Play Store 출시는 별도 작업입니다.
+GitHub Releases의 `TableLog-0.3.0.apk`는 배포 키로 서명한 release 빌드입니다. Android 8.0(API 26) 이상의 arm64·x86_64 기기를 지원합니다. Play Store 출시는 별도 작업입니다. 기존 debug APK와 서명 키가 달라 바로 덮어 설치할 수 없습니다. 기존 기록의 JSON·WAV를 먼저 내보낸 다음 테스트 앱을 삭제하고 설치하세요. 새 release 버전끼리는 같은 서명으로 업데이트합니다.
 
-1. `app/build/outputs/apk/debug/app-debug.apk`를 태블릿에 설치합니다. USB 연결 시 `adb install -r app/build/outputs/apk/debug/app-debug.apk`를 사용할 수 있습니다.
+Fish Audio 합성 앱은 별도 `FishAudio-0.1.0.apk`이며 [사용 안내](FISH_AUDIO.md)를 참조하세요.
+
+1. `TableLog-0.3.0.apk`를 태블릿에 설치합니다. USB 연결 시 `adb install -r TableLog-0.3.0.apk`를 사용할 수 있습니다.
 2. 설정에서 **한국어 모델 설치**를 누릅니다. Hugging Face와 GitHub에서 약 230MiB를 한 번 다운로드합니다. 설치에는 녹음을 전송하지 않습니다. 중단 후 다시 누르면 이어받고, 파일 크기와 SHA-256을 확인한 뒤 설치를 완료합니다.
 3. **새 회의 녹음**을 누르고 마이크 권한을 허용합니다. 알림 권한도 허용하면 앱 밖에서 녹음과 로컬 작업을 제어할 수 있습니다.
 4. 녹음을 **저장**한 뒤 **태블릿 로컬 → 로컬 전사**를 누릅니다. 설치가 끝난 모델은 인터넷 없이 실행합니다. 결과를 검토하고 적용해야 기존 녹취가 바뀝니다.
-5. 서버를 사용할 때는 **서버**를 선택하고 HTTPS 주소·기기 토큰·모델 이름을 등록합니다. 실행 전 실제 전송 대상과 보낼 자료를 확인합니다.
+5. 맥스튜디오는 **설정 → 맥스튜디오 선택**을 누르고 맥에서 `Server/tablelog-server issue-code`로 발급한 일회용 코드를 입력합니다. **코드로 연결·저장**하면 서버 전사로 전환됩니다. 다른 서버의 HTTPS 주소·기기 토큰·모델을 직접 입력할 수도 있습니다. 실행 전 실제 전송 대상과 보낼 자료를 확인합니다.
 
 로컬 회의록 요약과 자동 화자 분리는 아직 없습니다. **서버 회의록**은 별도 버튼이며, 로컬 전사를 선택했더라도 이 버튼을 누르면 녹취·메모의 서버 전송 확인을 거칩니다. 서버 없이 회의록 양식과 직접 편집을 사용할 수 있습니다.
 
@@ -33,7 +35,7 @@ Lenovo 공식 사양은 Snapdragon 8s Gen 4, 13인치 3504×2190입니다. 사�
 
 ## 현재 서버 연결 계약
 
-0.2.0은 HTTPS 서버 주소(예: `https://서버주소/v1`)와 **Bearer 기기 토큰**을 수동 등록합니다. 앱은 토큰을 발급하지 않습니다. 인증 없는 서버는 지원하지 않으며, 서버 주소가 바뀌면 새 토큰을 등록해야 합니다.
+0.3.0은 맥스튜디오 기본 주소 `https://yunju.work/tablelog-api/v1`와 일회용 코드 연결을 제공합니다. 코드는 맥에서 발급하며 10분간 한 번 유효합니다. 교환한 기기 토큰은 30일 후 만료되고 맥 CLI에서 개별 해제할 수 있습니다. [서버 실행·연결 안내](../Server/README.md). 다른 HTTPS 서버의 토큰 수동 등록도 유지합니다.
 
 | 경로 | 요청 | 응답 |
 | --- | --- | --- |
@@ -45,7 +47,7 @@ Lenovo 공식 사양은 Snapdragon 8s Gen 4, 13인치 3504×2190입니다. 사�
 
 회의록 요청은 제목·일시·녹취·메모를 보냅니다. 녹취와 메모가 합계 10만 자를 넘으면 중단하고, 임의로 잘라 보내지 않습니다. 일부 구간만 성공한 전사는 적용하지 않습니다. 요청 취소 시 네트워크 호출을 취소하고, 전송 확인 시점의 서버 설정을 해당 요청에 고정합니다.
 
-서버 주소·토큰·모델은 기본 제공하지 않습니다. 실제 운영 서버를 배포하지 않았으며 Mac의 Codex·Claude Code·Gemini CLI 로그인이나 구독이 자동 연결되는 구조가 아닙니다.
+맥스튜디오 기본값은 Whisper 음성 전사만 제공합니다. 회의록 모델은 비워 두며 자동 요약은 별도 `/chat/completions` 서버가 필요합니다. Mac의 Codex·Claude Code·Gemini CLI 로그인이나 구독을 자동 연결하지 않습니다.
 
 ## 서버 인증과 등록 방식
 
@@ -57,26 +59,11 @@ Lenovo 공식 사양은 Snapdragon 8s Gen 4, 13인치 3504×2190입니다. 사�
 - HTTP 401은 인증 만료/오류, 403은 권한 부족으로 구분해 안내합니다. 자동 재로그인·토큰 갱신은 아직 없습니다.
 - **연결 지우기**는 이 기기에 저장된 서버 설정만 삭제합니다. 서버의 토큰 폐기는 서버 기기 관리에서 해야 합니다. 모델·회의 기록·전사 방식은 그대로 유지합니다.
 
-### 권장 서버 구성과 수동 토큰 발급
+### 맥스튜디오 기기 연결
 
-개인용 첫 서버는 Mac의 API 계층을 loopback에 바인딩하고, Tailscale Serve의 HTTPS 주소로 연결하는 구성을 권장합니다. Tailscale 접근 제어와 앱 토큰 검증을 함께 적용합니다. 여러 사람에게 공개할 때는 정상 인증서가 있는 HTTPS 도메인과 계정 로그인을 갖춘 API 서버로 확장합니다. [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve).
+코드 교환 `POST /devices/connect`에는 일회용 코드만 전송합니다. 서버가 반환한 개별 토큰을 위 방식으로 저장합니다. 서버는 코드·토큰의 해시만 보관하고 `/models`와 전사 요청을 인증합니다. 기기 목록과 코드 발급은 로컬 CLI에서만 가능합니다. 별도의 웹 승인 화면이나 OAuth 폴링 절차는 사용하지 않습니다.
 
-서버는 사용자·기기별로 서로 다른 256비트 이상 난수 토큰을 발급하고, 토큰 자체 대신 해시와 기기 ID·소유자·만료일·권한·폐기 상태를 보관하도록 설계합니다. `/models`, 전사, 회의록 권한을 구분하고, 모든 작업·결과 조회에서 소유자를 검증합니다. 유출·분실 시 해당 기기의 토큰만 폐기할 수 있어야 합니다. 외부 AI 서비스의 장기 API 키는 서버에 보관합니다. 앱에 등록한 Bearer 토큰은 소지자가 사용할 수 있으므로 기기 고유 하드웨어 인증과 동일하게 취급하지 않습니다.
-
-이 발급·권한·폐기 기능은 **서버 구현 요구사항**입니다. 현재 앱에 토큰을 입력한다고 서버에 자동으로 기기가 등록되거나 폐기 목록이 생기지는 않습니다. NeMo 내장 서버의 단일 API 키만 사용하면 여러 기기를 개별 폐기할 수 없으므로 기기별 인증 계층이 필요합니다.
-
-### 후속 등록 절차: 짧은 코드로 승인
-
-수동 토큰 전달을 줄이기 위한 제안이며 아직 앱·서버에 구현하지 않았습니다. [OAuth Device Authorization Grant(RFC 8628)](https://www.rfc-editor.org/rfc/rfc8628)을 기준으로 다음 절차를 권장합니다.
-
-1. 태블릿에서 서버 주소를 입력하거나 서버 주소 QR을 읽고 표시된 도메인을 확인합니다. QR에는 장기 토큰을 넣지 않습니다.
-2. 태블릿이 등록 요청을 보내면 서버가 10분 이내 만료되는 `device_code`, 짧은 `user_code`, 승인 URL과 폴링 간격을 반환합니다. 이 수치는 초기 운영 정책 제안입니다.
-3. 사용자가 Mac의 서버 관리 화면에 로그인해 태블릿에 표시된 코드와 기기 이름을 확인하고 승인합니다. 코드만 아는 사람이 승인할 수 없도록 관리자 인증·시도 제한·일회 사용을 적용합니다.
-4. 앱은 지정 간격을 지키며 토큰을 요청하고 `authorization_pending`, `slow_down`, 거부·만료를 처리합니다. 서버는 승인된 요청에만 짧은 access token과 기기별 refresh token을 반환합니다. 앱에 공용 client secret을 넣지 않습니다.
-5. access token 15분·refresh token 30일을 초기 정책으로 검토합니다. refresh token은 사용 시 교체하고 재사용을 탐지해 폐기합니다. 토큰은 서버 주소에 묶어 Keystore로 보호합니다.
-6. 서버의 **기기 연결 해제**는 해당 기기의 세션·토큰을 폐기합니다. 앱의 로그아웃은 서버 폐기를 요청한 뒤 로컬 토큰을 삭제하고, 오프라인이면 서버 폐기를 완료하지 못했음을 알려야 합니다.
-
-등록용 경로 예시는 `POST /oauth/device_authorization`, `POST /oauth/token`, `POST /oauth/revoke`입니다. 현재 앱의 서버 연결 확인은 `/v1/models` 계약만 사용하며 이 등록 API를 호출하지 않습니다. [Android Keystore](https://developer.android.com/privacy-and-security/keystore).
+공개 APK에 공용 관리자 키나 장기 API 키를 포함하지 않습니다. 코드 교환은 HTTPS이며 리디렉션을 따라가지 않습니다. 서버의 요청 크기·동시 실행 제한과 기기별 폐기는 [서버 안내](../Server/README.md)에 정리했습니다. 연결 코드와 토큰을 다른 사람에게 전달하면 그 사람이 해당 기기로 접근할 수 있습니다.
 
 ## 저장·호환 범위
 
@@ -93,7 +80,8 @@ Mac용 녹취 JSON과 Android 기록 JSON, Markdown, WAV 내보내기를 지원�
 필요 도구는 JDK 17, Python 3, Android SDK Platform 36, Build Tools 35.0.0입니다. SDK 경로는 `local.properties`의 `sdk.dir` 또는 `ANDROID_HOME`으로 지정합니다.
 
 ```bash
-./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug \
+  :fishapp:testDebugUnitTest :fishapp:lintDebug :fishapp:assembleDebug
 ./gradlew :app:connectedDebugAndroidTest
 ```
 
@@ -102,3 +90,11 @@ Gradle이 `scripts/fetch-sherpa.py`로 고정 버전 AAR을 내려받고 SHA-256
 일반 기기 테스트는 모델이 없으면 실제 추론 테스트를 건너뜁니다. 실제 추론 테스트를 실행하려면 모델 목록의 파일과 공개 `test_wavs/ko.wav`를 앱 전용 저장소의 `ai-models/sensevoice-int8-v1/`, `verification/ko.wav`에 준비해야 합니다. `LocalAiTest.installFromPublicSourcesWhenExplicitlyRequested`는 `downloadModel=true`를 명시해야 실제 모델을 다운로드합니다. 테스트 입력의 출처는 [공개 한국어 샘플](https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/blob/2365baeacb507f821a0c8120fcee3d484dba7a07/test_wavs/ko.wav)이며 사용자 녹음을 쓰지 않습니다.
 
 GitHub Actions는 단위 테스트·lint·APK 빌드와 artifact 생성을 수행합니다. [검증 기록](VERIFICATION.md)에 에뮬레이터 확인과 실기기 미검증 범위를 구분했습니다. TB376FC의 2시간 녹음, 장시간 전사·발열·배터리·절전 정책과 실제 한국어 회의 정확도는 실기기에서 확인해야 합니다.
+
+배포 빌드에는 로컬에서만 관리하는 키 저장소와 비밀번호를 환경 변수 `TABLELOG_SIGNING_STORE`, `TABLELOG_SIGNING_PASSWORD`로 주입합니다. alias는 `tablelog`입니다. 키를 소스·APK·릴리스에 넣지 마세요. 변수 없이 release를 빌드하면 서명하지 않은 APK가 생성됩니다.
+
+```sh
+./gradlew :app:assembleRelease :fishapp:assembleRelease
+```
+
+현재 배포 키는 이 맥의 `~/Library/Application Support/TableLogAndroidSigning/`에서 관리합니다. 이 키를 잃으면 기존 설치본에 업데이트할 수 없으므로 별도 안전한 백업이 필요합니다.

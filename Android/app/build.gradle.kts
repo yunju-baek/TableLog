@@ -10,8 +10,8 @@ android {
         applicationId = "work.yunju.tablelog"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -21,7 +21,18 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
-    buildTypes { release { isMinifyEnabled = false } }
+    signingConfigs {
+        if (System.getenv("TABLELOG_SIGNING_STORE") != null) create("distribution") {
+            storeFile = file(System.getenv("TABLELOG_SIGNING_STORE"))
+            storePassword = System.getenv("TABLELOG_SIGNING_PASSWORD")
+            keyAlias = "tablelog"
+            keyPassword = System.getenv("TABLELOG_SIGNING_PASSWORD")
+        }
+    }
+    buildTypes { release {
+        isMinifyEnabled = false
+        signingConfig = signingConfigs.findByName("distribution")
+    } }
 }
 val sherpaAar = layout.buildDirectory.file("dependencies/sherpa-onnx-2.0.1.aar")
 val prepareSherpa by tasks.registering(Exec::class) {

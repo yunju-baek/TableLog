@@ -37,11 +37,15 @@ jobs:
           "$tablelog_sdk/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$tablelog_sdk" 'platforms;android-36' 'build-tools;35.0.0'
           printf 'sdk.dir=%s\n' "$tablelog_sdk" > local.properties
       - name: Test, lint and build
-        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :fishapp:testDebugUnitTest :fishapp:lintDebug :fishapp:assembleDebug
       - uses: actions/upload-artifact@v7
         with:
           name: TableLog-Android-debug
           path: Android/app/build/outputs/apk/debug/app-debug.apk
+      - uses: actions/upload-artifact@v7
+        with:
+          name: FishAudio-Android-debug
+          path: Android/fishapp/build/outputs/apk/debug/fishapp-debug.apk
       - uses: actions/upload-artifact@v7
         if: always()
         with:
