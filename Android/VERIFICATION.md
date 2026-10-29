@@ -1,5 +1,30 @@
 # Android 검증 기록
 
+## 0.4.0 — 2026-10-30
+
+| 확인 항목 | 결과 |
+| --- | --- |
+| JVM 테스트 | 18개 통과: 기존 JSON/인증/다운로드, 모델 교체, 서버 실시간 구간 전송, 교정 ID·시각 보존, 긴 질문 범위 표시, 분리/화자/리샘플링 |
+| Python 서버 테스트 | 6개 통과: 기존 인증/부하 계약과 회의 AI의 인증·모델·메시지·도구 요청 거부 |
+| Android 빌드·lint | debug/test/release APK 빌드 통과, lint 오류 0 |
+| Release 패키징 | 0.3.0과 동일 인증서, non-debuggable, ZIP·native ELF 16KB 정렬, 개인 녹음·모델·서명 키 미포함 |
+| 0.3.0 → 0.4.0 업데이트 | 별도 API 36 태블릿 에뮬레이터에서 실제 서명 APK를 덮어 설치. 앱 UID·예시 회의 JSON 동일, 기존 SenseVoice 폴더를 설치됨으로 인식 |
+| 태블릿 에뮬레이터 | API 36 arm64 Pixel Tablet, RAM 4GB |
+| 통합 기기 테스트 | 11개 실제 통과, 다운로드 선택 검사 1개 건너뜀(총 12개). 녹음/복구, 모델 설정, 실제 로컬 전사, M4A AAC 왕복, 편집 되돌리기, 실제 서버 연결·전사·질문·교정·종료 후 자동 회의록 |
+| 5개 실제 ASR 모델 | SenseVoice, Whisper Tiny/Base/Small/Medium의 한국어·영어 공개 샘플 추론 통과. 종료 전 결과 반영·종료 후 마지막 구간·도중 메모/수정 보존 확인 |
+| 공개 HTTPS 서버 | 0.4.0 배포 후 Whisper 전사와 Qwen 회의 AI 실제 응답 확인. 시험용 기기는 검사 후 폐기 |
+| AI 모델 비상주 | 음성/텍스트 워커 각각 요청 후 종료. 텍스트 환경은 Fish와 분리 |
+
+모델은 고정 해시를 검증한 뒤 앱 저장소에 준비했습니다. 새 Whisper 모델 파일 모두 공개 HTTPS에서 내려받아 검증하고 네이티브 ONNX 엔진으로 실행했습니다. 이번 통합 검사에서는 앱 내 전체 네트워크 재다운로드 선택 테스트를 실행하지 않았습니다. 다운로드/이어받기 단위 검사는 통과했고 기존 SenseVoice 앱 다운로드 검증은 아래 0.2.0 기록을 참조합니다.
+
+한국어 샘플 4.608초 SHA-256: `0dc797a5c81ed30fc339d91f3da718ab02854e17ffa37cb93c4c039ac5c6bb9c`. 영어 샘플 6.625초(공개 Whisper tiny 샘플을 16kHz mono PCM16으로 변환) SHA-256: `6bc58a4efdf20daac252b6b1502632601a71efe0308f6757dc1eda34891a7e4f`. 사용자 회의 녹음은 사용하지 않았습니다.
+
+[한국어 공개 샘플](https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/blob/2365baeacb507f821a0c8120fcee3d484dba7a07/test_wavs/ko.wav), [영어 공개 샘플](https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny/blob/65176e2deb88badc814a94058666cadccc29b61c/test_wavs/0.wav).
+
+단문·합성 회의의 기능 확인이며 한국어 회의 CER/WER, LLM 품질 비교 또는 실시간 성능 벤치마크가 아닙니다. Tiny에서 일부 단어 오인이 있었고 소형 LLM은 암시적 담당자를 놓칠 수 있습니다. 실제 Lenovo TB376FC, 2시간 녹음·발열·배터리·제조사 절전, Android 8~15와 16KB 페이지 기기 실행은 미검증입니다.
+
+APK SHA-256: `6f449f81f795ec62f2af55c1f20d4294028e010874c010422fff7be00e0f86b0` (`TableLog-0.4.0.apk`, 79,770,111 bytes). 서명 인증서는 0.3.0과 동일합니다. 마지막 녹음 알림/마무리 변경 후 서비스 기기 테스트 3개를 다시 실행해 통과했습니다.
+
 ## 0.3.0 / Fish Audio 0.1.0 — 2026-10-29
 
 JDK 17·AGP 8.13.2·Gradle 8.13·SDK 36에서 두 앱의 debug/release 빌드와 lint를 통과했습니다. Release APK는 별도 배포 키로 서명했고 `debuggable`이 꺼져 있습니다. 기존 0.2.0 debug 키로 서명한 앱에는 직접 업데이트할 수 없습니다.

@@ -6,11 +6,11 @@ macOS에서 회의를 녹음하고 화자별 녹취·회의록·참고 자료를
 - [Codex · Claude Code · Gemini CLI 연결](docs/AI_CLI_SETUP.md)
 - [버전 기록](docs/CHANGELOG.md)
 - [음성 엔진 업데이트·화자 모델 비교](docs/ENGINE_UPDATE_2.6.0.md)
-- [Android 앱 0.3.0: 로컬 전사·맥스튜디오 연결](Android/README.md)
+- [Android 앱 0.4.0: 녹음 중 자동 전사·모델 선택·회의 AI](Android/README.md)
 
 ## Android 앱
 
-`Android/`에 Kotlin·Jetpack Compose 기반 앱을 추가했습니다. 목표 기기는 레노버 TB376FC 13인치 태블릿, RAM 8GB입니다. 회의 녹음·편집·내보내기와 함께 SenseVoice 기반 한국어 로컬 전사 또는 HTTPS 서버 전사를 선택할 수 있습니다. 로컬 모델은 최초 설치 후 인터넷 없이 실행하며, 서버는 기기 토큰과 전송 확인을 사용합니다. 넓은 창에서는 회의 목록과 상세를 함께 표시합니다. 자동 화자 분리·로컬 회의록 요약·Mac 자동 동기화는 아직 없습니다. 맥스튜디오 연결은 일회용 코드로 등록합니다. [Android 안내](Android/README.md), [맥 서버](Server/README.md), [Fish Audio 태블릿 앱](Android/FISH_AUDIO.md)을 확인해 주세요.
+`Android/`의 Kotlin·Jetpack Compose 앱은 녹음 중 자동 전사·저장, SenseVoice/Whisper 5종 선택, 맥스튜디오 서버 연결을 지원합니다. 회의 AI로 주기적 요약·종료 후 회의록·질문·검토 후 교정을 수행하고 M4A 가져오기/저장, 화자 이름 일괄 변경·발언 분리·되돌리기를 제공합니다. 목표 기기는 레노버 TB376FC RAM 8GB이며 실제 장시간 성능은 미검증입니다. 로컬 ASR은 설치 후 오프라인으로 사용하고 회의 AI는 설정한 HTTPS 서버를 사용합니다. 자동 화자 구분·목소리 학습·PDF/OCR·Mac 자동 동기화는 아직 없습니다. [Mac/Android 기능 비교](Android/PARITY.md)를 참고하세요. [Android 안내](Android/README.md), [맥 서버](Server/README.md), [Fish Audio 태블릿 앱](Android/FISH_AUDIO.md)을 확인해 주세요.
 
 ## 실행 환경
 

@@ -23,6 +23,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 ROOT = Path(os.environ.get("TABLELOG_SERVER_HOME", Path.home() / "Library/Application Support/TableLogServer"))
 MODEL = "whisper-large-v3-turbo"
+TEXT_MODEL = "tablelog-qwen3.5-4b"
+TEXT_PYTHON = Path.home() / "Library/Application Support/CoworkPython/envs/tablelog-text/bin/python"
+TEXT_MODEL_DIR = ROOT / "models/qwen3.5-4b-4bit"
 MAX_BODY = 12 * 1024**2
 TOKEN_SECONDS = 30 * 86400
 
@@ -127,7 +130,7 @@ class AccessLimits:
             else:
                 ident = self.devices.authenticate(headers.get(b"authorization", b"").decode("latin1"))
                 scope.setdefault("state", {})["device_id"] = ident
-            limit = 4096 if path == "/v1/devices/connect" else MAX_BODY
+            limit = 4096 if path == "/v1/devices/connect" else 512 * 1024 if path == "/v1/chat/completions" else MAX_BODY
             try:
                 size = int(headers.get(b"content-length", b"0"))
             except ValueError:
@@ -152,11 +155,27 @@ class ConnectInput(BaseModel):
     code: str = Field(min_length=12, max_length=32)
 
 
-def create_app(devices=None, worker=None):
+class ChatMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: str = Field(pattern="^(system|user|assistant)$")
+    content: str = Field(min_length=1, max_length=45000)
+
+
+class ChatInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    model: str
+    messages: list[ChatMessage] = Field(min_length=1, max_length=20)
+    stream: bool = False
+    max_tokens: int = Field(default=2048, ge=32, le=3072)
+
+
+def create_app(devices=None, worker=None, text_worker=None, text_python=None):
     devices = devices or Devices()
-    api = FastAPI(title="TableLog Mac Studio", version="0.3.0", docs_url=None, redoc_url=None, openapi_url=None)
+    api = FastAPI(title="TableLog Mac Studio", version="0.4.0", docs_url=None, redoc_url=None, openapi_url=None)
     api.add_middleware(AccessLimits, devices=devices)
     gate = threading.Lock()
+    text_gate = threading.Lock()
+    text_ready = text_worker is not None or (TEXT_PYTHON.is_file() and (TEXT_MODEL_DIR / "config.json").is_file())
 
     @api.middleware("http")
     async def response_headers(request, call_next):
@@ -167,11 +186,13 @@ def create_app(devices=None, worker=None):
 
     @api.get("/health")
     def health():
-        return {"status": "ok", "service": "TableLog Mac Studio", "version": "0.3.0", "busy": gate.locked()}
+        return {"status": "ok", "service": "TableLog Mac Studio", "version": "0.4.0", "busy": gate.locked(), "text_busy": text_gate.locked(), "text_available": text_ready}
 
     @api.post("/v1/devices/connect")
     def connect(payload: ConnectInput):
-        return devices.connect_device(payload.code)
+        result = devices.connect_device(payload.code)
+        if text_ready: result["text_model"] = TEXT_MODEL
+        return result
 
     @api.post("/v1/devices/revoke")
     def revoke(request: Request):
@@ -180,7 +201,36 @@ def create_app(devices=None, worker=None):
 
     @api.get("/v1/models")
     def models():
-        return {"data": [{"id": MODEL, "object": "model", "task": "transcription"}]}
+        return {"data": [{"id": MODEL, "object": "model", "task": "transcription"}] + ([{"id": TEXT_MODEL, "object": "model", "task": "chat"}] if text_ready else [])}
+
+    @api.post("/v1/chat/completions")
+    async def chat(payload: ChatInput, request: Request):
+        if payload.model != TEXT_MODEL or payload.stream or sum(len(m.content) for m in payload.messages) > 45000:
+            raise HTTPException(422, "텍스트 요청 형식 또는 길이를 확인해 주세요.")
+        if not text_ready:
+            raise HTTPException(503, "맥의 회의 AI 모델이 준비되지 않았습니다.")
+        if not text_gate.acquire(blocking=False):
+            raise HTTPException(429, "다른 회의 AI 작업이 진행 중입니다. 잠시 후 다시 요청해 주세요.")
+        proc = None
+        try:
+            with tempfile.TemporaryDirectory(prefix="tablelog-text-") as temp:
+                source, output = Path(temp) / "input.json", Path(temp) / "output.json"
+                source.write_text(payload.model_dump_json())
+                proc = await asyncio.create_subprocess_exec(str(text_python or TEXT_PYTHON), str(text_worker or Path(__file__).with_name("text_worker.py")),
+                    "--input", str(source), "--output", str(output), stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+                started = time.monotonic()
+                while proc.returncode is None:
+                    if await request.is_disconnected() or time.monotonic() - started > 210:
+                        raise HTTPException(504, "회의 AI 요청이 취소되었거나 시간이 초과되었습니다.")
+                    await asyncio.sleep(.1)
+                if proc.returncode != 0 or not output.is_file() or output.stat().st_size > 512 * 1024:
+                    raise HTTPException(503, "회의 AI 모델을 실행하지 못했습니다. 녹음과 기존 기록은 보존되어 있습니다.")
+                return json.loads(output.read_text())
+        finally:
+            if proc and proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+            text_gate.release()
 
     @api.post("/v1/audio/transcriptions")
     async def transcribe(request: Request):
@@ -189,8 +239,9 @@ def create_app(devices=None, worker=None):
         proc = None
         try:
             async with request.form(max_files=1, max_fields=3, max_part_size=4096) as form:
-                if form.get("model") != MODEL or form.get("language", "ko") != "ko" or form.get("response_format", "verbose_json") != "verbose_json":
+                if form.get("model") != MODEL or form.get("language", "ko") not in ("ko", "en", "auto") or form.get("response_format", "verbose_json") != "verbose_json":
                     raise HTTPException(422, "지원하지 않는 모델 또는 응답 형식입니다.")
+                language = form.get("language", "ko")
                 upload = form.get("file")
                 if upload is None or not hasattr(upload, "read"):
                     raise HTTPException(422, "녹음 파일이 필요합니다.")
@@ -202,7 +253,7 @@ def create_app(devices=None, worker=None):
                 source, output = Path(temp) / "input.wav", Path(temp) / "output.json"
                 source.write_bytes(data)
                 proc = await asyncio.create_subprocess_exec(sys.executable, str(worker or Path(__file__).with_name("transcribe_worker.py")),
-                    "--input", str(source), "--output", str(output), stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+                    "--input", str(source), "--output", str(output), "--language", language, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
                 started = time.monotonic()
                 while proc.returncode is None:
                     if await request.is_disconnected() or time.monotonic() - started > 210:

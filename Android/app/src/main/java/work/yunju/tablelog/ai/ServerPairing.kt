@@ -34,7 +34,7 @@ class ServerPairing(private val client: OkHttpClient = AIClient.defaultClient())
                             val source = it.body?.source() ?: error("서버 응답이 비어 있습니다.")
                             check(!source.request(16_385)) { "서버 응답이 너무 큽니다." }
                             val json = JSONObject(source.readUtf8())
-                            AISettings(address.canonicalUrl(), json.getString("speech_model"), "", json.getString("access_token")).also { value ->
+                            AISettings(address.canonicalUrl(), json.getString("speech_model"), json.optString("text_model"), json.getString("access_token")).also { value ->
                                 value.validate()
                                 require(value.apiKey.length in 32..128) { "기기 토큰 형식이 올바르지 않습니다." }
                             }
@@ -47,6 +47,7 @@ class ServerPairing(private val client: OkHttpClient = AIClient.defaultClient())
     }
     companion object {
         const val MAC_STUDIO_URL = "https://yunju.work/tablelog-api/v1"
+        const val MAC_STUDIO_TEXT_MODEL = "tablelog-qwen3.5-4b"
         const val MAC_STUDIO_MODEL = "whisper-large-v3-turbo"
     }
 }
