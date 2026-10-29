@@ -26,6 +26,10 @@ class SettingsStore(context: Context) {
     private val prefs = context.getSharedPreferences("ai-settings", Context.MODE_PRIVATE)
     fun speechMode(): SpeechMode = runCatching { SpeechMode.valueOf(prefs.getString("speech-mode", "LOCAL")!!) }.getOrDefault(SpeechMode.LOCAL)
     fun setSpeechMode(mode: SpeechMode) { check(prefs.edit().putString("speech-mode", mode.name).commit()) { "전사 방식을 저장하지 못했습니다." } }
+    fun liveTranscription(): Boolean = prefs.getBoolean("live-transcription", true)
+    fun setLiveTranscription(enabled: Boolean) { check(prefs.edit().putBoolean("live-transcription", enabled).commit()) }
+    fun autoMinutes(): Boolean = prefs.getBoolean("auto-minutes", false)
+    fun setAutoMinutes(enabled: Boolean) { check(prefs.edit().putBoolean("auto-minutes", enabled).commit()) }
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (store.getKey("tablelog-ai", null) as? SecretKey)?.let { return it }
@@ -43,7 +47,7 @@ class SettingsStore(context: Context) {
                 if (prefs.getInt("secret-version", 0) >= 1) updateAAD(prefs.getString("url", "").orEmpty().toByteArray())
             }.doFinal(data.copyOfRange(12, data.size)).toString(Charsets.UTF_8)
         }
-        return AISettings(prefs.getString("url", "").orEmpty(), prefs.getString("speech", "").orEmpty(), prefs.getString("text", "").orEmpty(), apiKey)
+        return AISettings(prefs.getString("url", "").orEmpty(), prefs.getString("speech", "").orEmpty(), prefs.getString("text", "").orEmpty().ifBlank { if (prefs.getString("url", "") == ServerPairing.MAC_STUDIO_URL) ServerPairing.MAC_STUDIO_TEXT_MODEL else "" }, apiKey)
     }
     fun save(value: AISettings) {
         value.validate()

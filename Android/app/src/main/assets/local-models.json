@@ -1,23 +1,178 @@
 {
-  "id": "sensevoice-int8-v1",
-  "files": [
+  "default": "sensevoice-int8-v1",
+  "models": [
     {
-      "name": "model.int8.onnx",
-      "url": "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/2365baeacb507f821a0c8120fcee3d484dba7a07/model.int8.onnx",
-      "bytes": 239233841,
-      "sha256": "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51"
+      "id": "sensevoice-int8-v1",
+      "files": [
+        {
+          "name": "model.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/2365baeacb507f821a0c8120fcee3d484dba7a07/model.int8.onnx",
+          "bytes": 239233841,
+          "sha256": "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51"
+        },
+        {
+          "name": "tokens.txt",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/2365baeacb507f821a0c8120fcee3d484dba7a07/tokens.txt",
+          "bytes": 315894,
+          "sha256": "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc"
+        },
+        {
+          "name": "silero_vad.onnx",
+          "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+          "bytes": 643854,
+          "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"
+        }
+      ],
+      "name": "SenseVoice Small INT8",
+      "engine": "sensevoice",
+      "description": "현재 기본 모델 · 한국어를 포함한 다국어 음성 인식",
+      "source": "https://huggingface.co/FunAudioLLM/SenseVoiceSmall",
+      "tokens": "tokens.txt",
+      "model": "model.int8.onnx"
     },
     {
-      "name": "tokens.txt",
-      "url": "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/2365baeacb507f821a0c8120fcee3d484dba7a07/tokens.txt",
-      "bytes": 315894,
-      "sha256": "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc"
+      "id": "whisper-tiny-int8-v1",
+      "name": "Whisper Tiny INT8",
+      "engine": "whisper",
+      "description": "가장 작은 다운로드 · 짧은 발화로 품질을 비교해 보세요.",
+      "source": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny",
+      "encoder": "tiny-encoder.int8.onnx",
+      "decoder": "tiny-decoder.int8.onnx",
+      "tokens": "tiny-tokens.txt",
+      "files": [
+        {
+          "name": "tiny-encoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny/resolve/65176e2deb88badc814a94058666cadccc29b61c/tiny-encoder.int8.onnx",
+          "bytes": 12937772,
+          "sha256": "d24fb083ae3b1041fc24e97971d60e280c9342201fbb67b0ab428a8b4a51a434"
+        },
+        {
+          "name": "tiny-decoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny/resolve/65176e2deb88badc814a94058666cadccc29b61c/tiny-decoder.int8.onnx",
+          "bytes": 89855401,
+          "sha256": "d2fece8dd42771f1df975c6c0445770d0c292bf7547c2cae04a6c0cc57540925"
+        },
+        {
+          "name": "tiny-tokens.txt",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny/resolve/65176e2deb88badc814a94058666cadccc29b61c/tiny-tokens.txt",
+          "bytes": 816730,
+          "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126"
+        },
+        {
+          "name": "silero_vad.onnx",
+          "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+          "bytes": 643854,
+          "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"
+        }
+      ]
     },
     {
-      "name": "silero_vad.onnx",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
-      "bytes": 643854,
-      "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"
+      "id": "whisper-base-int8-v1",
+      "name": "Whisper Base INT8",
+      "engine": "whisper",
+      "description": "Tiny보다 큰 Whisper · 한국어 문장 인식 비교용",
+      "source": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base",
+      "encoder": "base-encoder.int8.onnx",
+      "decoder": "base-decoder.int8.onnx",
+      "tokens": "base-tokens.txt",
+      "files": [
+        {
+          "name": "base-encoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/bb53ee204431c90d314c1cc08d28d23e5b7927cc/base-encoder.int8.onnx",
+          "bytes": 29120534,
+          "sha256": "0b8fb1304b6109976038efff5ace81720e00386f3ff6b54ee8c75291ca0a1e11"
+        },
+        {
+          "name": "base-decoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/bb53ee204431c90d314c1cc08d28d23e5b7927cc/base-decoder.int8.onnx",
+          "bytes": 130672026,
+          "sha256": "9759d217388a01b3a4c7c15533201067b48ae819c4daafc8624e64b9409dc02d"
+        },
+        {
+          "name": "base-tokens.txt",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/bb53ee204431c90d314c1cc08d28d23e5b7927cc/base-tokens.txt",
+          "bytes": 816730,
+          "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126"
+        },
+        {
+          "name": "silero_vad.onnx",
+          "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+          "bytes": 643854,
+          "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"
+        }
+      ]
+    },
+    {
+      "id": "whisper-small-int8-v1",
+      "name": "Whisper Small INT8",
+      "engine": "whisper",
+      "description": "한국어·영어 다국어 · 더 큰 모델로 품질 비교 · 실시간 처리 속도는 기기에 따라 다름",
+      "source": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small",
+      "tokens": "small-tokens.txt",
+      "encoder": "small-encoder.int8.onnx",
+      "decoder": "small-decoder.int8.onnx",
+      "files": [
+        {
+          "name": "small-encoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/8f3c18b358db4d1f2fc1eae49d75cd20989e4309/small-encoder.int8.onnx",
+          "bytes": 112442483,
+          "sha256": "4cbe7b22fa9026b843b60a68640c747de05bafb1a11b57edc0e66c232d9f33a9"
+        },
+        {
+          "name": "small-decoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/8f3c18b358db4d1f2fc1eae49d75cd20989e4309/small-decoder.int8.onnx",
+          "bytes": 262226114,
+          "sha256": "acad50b5c782696e91b55914cc5ab4f756f1532f76e22aa6fc615f39fb69a8ee"
+        },
+        {
+          "name": "small-tokens.txt",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/8f3c18b358db4d1f2fc1eae49d75cd20989e4309/small-tokens.txt",
+          "bytes": 816730,
+          "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126"
+        },
+        {
+          "name": "silero_vad.onnx",
+          "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+          "bytes": 643854,
+          "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"
+        }
+      ]
+    },
+    {
+      "id": "whisper-medium-int8-v1",
+      "name": "Whisper Medium INT8",
+      "engine": "whisper",
+      "description": "한국어·영어 다국어 · 고사양 태블릿용 · 녹음보다 전사가 늦어질 수 있음",
+      "source": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-medium",
+      "tokens": "medium-tokens.txt",
+      "encoder": "medium-encoder.int8.onnx",
+      "decoder": "medium-decoder.int8.onnx",
+      "files": [
+        {
+          "name": "medium-encoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-medium/resolve/8c31d28503847560985df21f90e14f0c736e075e/medium-encoder.int8.onnx",
+          "bytes": 374196283,
+          "sha256": "1c54582b4d829de0089f6cb63bbbdb3bf7555398bacaf855fbecf1a84dfd193e"
+        },
+        {
+          "name": "medium-decoder.int8.onnx",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-medium/resolve/8c31d28503847560985df21f90e14f0c736e075e/medium-decoder.int8.onnx",
+          "bytes": 571059257,
+          "sha256": "595d00a338a365a7bfa0ca7f296cabc639583bef770ab6130df90f49a6412747"
+        },
+        {
+          "name": "medium-tokens.txt",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-medium/resolve/8c31d28503847560985df21f90e14f0c736e075e/medium-tokens.txt",
+          "bytes": 816730,
+          "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126"
+        },
+        {
+          "name": "silero_vad.onnx",
+          "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+          "bytes": 643854,
+          "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"
+        }
+      ]
     }
   ]
 }

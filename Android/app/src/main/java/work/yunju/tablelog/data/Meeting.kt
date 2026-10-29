@@ -15,6 +15,8 @@ data class Utterance(
     val text: String,
 )
 
+data class AssistantTurn(val question: String, val answer: String, val at: Long = System.currentTimeMillis())
+
 data class Meeting(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
@@ -28,6 +30,12 @@ data class Meeting(
     val notes: String = "",
     val deleted: Boolean = false,
     val revision: Int = 0,
+    val transcriptionModel: String = "",
+    val transcriptionStatus: String = "",
+    val summary: String = "",
+    val automaticMinutes: String = "",
+    val assistant: List<AssistantTurn> = emptyList(),
+    val materials: String = "",
 )
 
 object MeetingCodec {
@@ -37,6 +45,9 @@ object MeetingCodec {
         put("durationSeconds", m.durationSeconds); put("audioName", m.audioName)
         put("status", m.status); put("minutes", m.minutes); put("notes", m.notes)
         put("deleted", m.deleted); put("revision", m.revision)
+        put("transcriptionModel", m.transcriptionModel); put("transcriptionStatus", m.transcriptionStatus)
+        put("summary", m.summary); put("automaticMinutes", m.automaticMinutes); put("materials", m.materials)
+        put("assistant", JSONArray(m.assistant.map { JSONObject().put("question", it.question).put("answer", it.answer).put("at", it.at) }))
         put("utterances", JSONArray(m.utterances.map {
             JSONObject().put("id", it.id).put("speaker", it.speaker)
                 .put("start", it.start).put("end", it.end).put("text", it.text)
@@ -54,6 +65,9 @@ object MeetingCodec {
             audioName = if (j.has("audioName")) j.getString("audioName") else null,
             status = j.getString("status"), minutes = j.optString("minutes"), notes = j.optString("notes"),
             deleted = j.optBoolean("deleted"), revision = j.optInt("revision"),
+            transcriptionModel = j.optString("transcriptionModel"), transcriptionStatus = j.optString("transcriptionStatus"),
+            summary = j.optString("summary"), automaticMinutes = j.optString("automaticMinutes"), materials = j.optString("materials"),
+            assistant = j.optJSONArray("assistant")?.let { a -> List(a.length()) { i -> a.getJSONObject(i).let { AssistantTurn(it.getString("question"), it.getString("answer"), it.getLong("at")) } } } ?: emptyList(),
             utterances = List(segments.length()) { i ->
                 val s = segments.getJSONObject(i)
                 Utterance(s.getInt("id"), s.getString("speaker"), s.getDouble("start"), s.getDouble("end"), s.getString("text"))
@@ -122,7 +136,8 @@ object MeetingCodec {
     fun markdown(m: Meeting): String = buildString {
         appendLine("# ${m.title.replace('\n', ' ')}\n")
         appendLine("${dateLabel(m.startedAt)} · 녹음 ${timeLabel(m.durationSeconds)}\n")
-        if (m.minutes.isNotBlank()) { appendLine(m.minutes); appendLine() }
+        if (m.minutes.ifBlank { m.automaticMinutes }.isNotBlank()) { appendLine(m.minutes.ifBlank { m.automaticMinutes }); appendLine() }
+        if (m.summary.isNotBlank()) { appendLine("## 진행 요약\n"); appendLine(m.summary); appendLine() }
         if (m.notes.isNotBlank()) { appendLine("## 메모\n"); appendLine(m.notes); appendLine() }
         appendLine("## 녹취\n")
         m.utterances.forEach {

@@ -47,11 +47,40 @@ class AppFlowTest {
         assertTrue(app.repository.directory(fixture.id).resolve("revisions").listFiles()!!.isNotEmpty())
     }
 
+    @Test fun automaticTranscriptionServiceFinishesAndReleasesItsSession() {
+        val app = compose.activity.application as TableLogApplication
+        compose.waitUntil(10_000) { app.ready.value }
+        val models = work.yunju.tablelog.ai.LocalModelStore(app, "sensevoice-int8-v1")
+        org.junit.Assume.assumeTrue(models.installed())
+        fun send(action: String) = compose.runOnUiThread {
+            val intent = Intent(compose.activity, RecordingService::class.java).setAction(action)
+                .putExtra("title", "자동 전사 녹음 검증").putExtra("live", true)
+                .putExtra("speechMode", "LOCAL").putExtra("modelId", models.id)
+            if (action == RecordingService.START) ContextCompat.startForegroundService(compose.activity, intent)
+            else compose.activity.startService(intent)
+        }
+        try {
+            send(RecordingService.START)
+            compose.waitUntil(30_000) { RecordingService.state.value.processedSeconds > 1.0 || RecordingService.state.value.error != null || RecordingService.state.value.transcriptionError != null }
+            assertNull(RecordingService.state.value.error); assertNull(RecordingService.state.value.transcriptionError)
+            val id = RecordingService.state.value.meetingId!!
+            assertTrue(RecordingService.state.value.live)
+            compose.activityRule.scenario.recreate()
+            assertEquals(id, RecordingService.state.value.meetingId)
+            send(RecordingService.STOP)
+            compose.waitUntil(60_000) { !RecordingService.state.value.running }
+            assertEquals("complete", app.repository.get(id)!!.transcriptionStatus)
+            assertEquals(models.definition.name, app.repository.get(id)!!.transcriptionModel)
+            assertNull(RecordingService.state.value.error)
+            work.yunju.tablelog.ai.LocalTranscriber.validateWave(app.repository.audioFile(app.repository.get(id)!!)!!)
+        } finally { send(RecordingService.STOP); send(RecordingService.CANCEL_TRANSCRIPTION) }
+    }
+
     @Test fun foregroundRecorderPausesResumesSurvivesRecreationAndWritesValidWav() {
         val app = compose.activity.application as TableLogApplication
         compose.waitUntil(10_000) { app.ready.value }
         fun send(action: String) = compose.runOnUiThread {
-            val intent = Intent(compose.activity, RecordingService::class.java).setAction(action).putExtra("title", "합성 녹음 검증")
+            val intent = Intent(compose.activity, RecordingService::class.java).setAction(action).putExtra("title", "합성 녹음 검증").putExtra("live", false)
             if (action == RecordingService.START) ContextCompat.startForegroundService(compose.activity, intent)
             else compose.activity.startService(intent)
         }

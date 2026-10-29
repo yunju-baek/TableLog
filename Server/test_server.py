@@ -1,4 +1,5 @@
 import io
+import sys
 import json
 import tempfile
 import time
@@ -6,7 +7,7 @@ import unittest
 import wave
 from pathlib import Path
 from fastapi.testclient import TestClient
-from server import Devices, create_app, MODEL, MAX_BODY
+from server import Devices, create_app, MODEL, TEXT_MODEL, MAX_BODY
 
 
 class ServerTests(unittest.TestCase):
@@ -16,7 +17,9 @@ class ServerTests(unittest.TestCase):
         self.devices = Devices(self.root / "state")
         worker = self.root / "worker.py"
         worker.write_text('import sys,json,pathlib\npathlib.Path(sys.argv[4]).write_text(json.dumps({"text":"테스트","segments":[{"start":0,"end":1,"text":"테스트"}]}))\n')
-        self.client = TestClient(create_app(self.devices, worker))
+        text_worker = self.root / "text_worker.py"
+        text_worker.write_text('import sys,json,pathlib\npathlib.Path(sys.argv[4]).write_text(json.dumps({"choices":[{"message":{"content":"합성 회의 요약"}}]}))\n')
+        self.client = TestClient(create_app(self.devices, worker, text_worker, sys.executable))
 
     def tearDown(self):
         self.client.close(); self.temp.cleanup()
@@ -64,6 +67,21 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(result.status_code,200,result.text)
         self.assertEqual(result.json()["text"],"테스트")
         self.assertFalse(self.client.get("/health").json()["busy"])
+
+    def test_text_authentication_models_and_bounded_contract(self):
+        payload = {"model":TEXT_MODEL,"messages":[{"role":"user","content":"합성 회의 요약"}],"stream":False}
+        self.assertEqual(self.client.post("/v1/chat/completions",json=payload).status_code,401)
+        header, _, paired = self.pair()
+        self.assertEqual(paired["text_model"],TEXT_MODEL)
+        self.assertIn(TEXT_MODEL,[m["id"] for m in self.client.get("/v1/models",headers=header).json()["data"]])
+        response = self.client.post("/v1/chat/completions",headers=header,json=payload)
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()["choices"][0]["message"]["content"],"합성 회의 요약")
+        self.assertEqual(self.client.post("/v1/chat/completions",headers=header,json={**payload,"tools":[{"name":"shell"}]}).status_code,422)
+        self.assertEqual(self.client.post("/v1/chat/completions",headers=header,json={**payload,"model":"../../another-model"}).status_code,422)
+        self.assertEqual(self.client.post("/v1/chat/completions",headers=header,json={**payload,"messages":[{"role":"user","content":"x"*45001}]}).status_code,422)
+        self.assertEqual(self.client.post("/v1/chat/completions",headers=header,json={**payload,"max_tokens":999999}).status_code,422)
+        self.assertFalse(self.client.get("/health").json()["text_busy"])
 
     def test_code_rate_limit(self):
         for _ in range(20): self.client.post("/v1/devices/connect",json={"code":"AAAAAAAAAAAA"})

@@ -21,14 +21,18 @@ class MeetingRepository(context: Context) {
                 val file = AtomicFile(File(dir, "meeting.json"))
                 var m = MeetingCodec.decode(file.openRead().bufferedReader().use { it.readText() })
                 require(dir.name == m.id)
-                if (m.status == "recording" || m.status == "paused") {
+                if (m.status in listOf("recording", "paused", "importing")) {
                     val wav = audioFile(m)
                     val seconds = if (wav?.exists() == true) runCatching { WavFile.repair(wav) }.getOrElse {
                         warning.value = "일부 녹음 파일을 복구하지 못했습니다. 회의 정보와 원본 파일은 보존되어 있습니다."
                         m.durationSeconds
                     } else m.durationSeconds
-                    m = m.copy(status = "interrupted", durationSeconds = seconds, endedAt = System.currentTimeMillis())
+                    m = m.copy(status = "interrupted", durationSeconds = seconds, endedAt = System.currentTimeMillis(),
+                        transcriptionStatus = if (m.transcriptionStatus == "running") "interrupted" else m.transcriptionStatus)
                     write(m)
+                }
+                if (m.transcriptionStatus == "running") {
+                    m = m.copy(transcriptionStatus = "interrupted"); write(m)
                 }
                 m
             }.getOrElse { errors += dir.name; null }
@@ -63,6 +67,25 @@ class MeetingRepository(context: Context) {
     @Synchronized fun update(id: String, snapshot: Boolean = true, edit: (Meeting) -> Meeting): Meeting {
         val current = get(id) ?: error("회의를 찾을 수 없습니다.")
         return save(edit(current), snapshot)
+    }
+
+    fun canUndo(m: Meeting): Boolean = File(directory(m.id), "revisions").listFiles().orEmpty().any { it.name.startsWith("${m.revision - 1}-") }
+
+    @Synchronized fun undo(id: String, expectedRevision: Int): Meeting {
+        val current = get(id) ?: error("회의가 없습니다.")
+        require(current.revision == expectedRevision && current.status !in listOf("recording", "paused")) { "기록이 변경되었습니다. 현재 내용을 확인해 주세요." }
+        val priorFile = File(directory(id), "revisions").listFiles().orEmpty().firstOrNull { it.name.startsWith("${current.revision - 1}-") }
+            ?: error("되돌릴 수 있는 직전 편집이 없습니다.")
+        val previous = MeetingCodec.decode(priorFile.readText())
+        return update(id) { it.copy(title = previous.title, utterances = previous.utterances, minutes = previous.minutes, notes = previous.notes, materials = previous.materials) }
+    }
+
+    /** Appends to the latest revision, preserving notes, corrected text and manually added turns. */
+    @Synchronized fun appendLive(id: String, utterance: Utterance) = update(id, snapshot = false) { m ->
+        check(!m.deleted)
+        val next = utterance.copy(id = (m.utterances.maxOfOrNull { it.id } ?: 0) + 1)
+        m.copy(utterances = (m.utterances + next).sortedWith(compareBy({ it.start }, { it.id })),
+            durationSeconds = maxOf(m.durationSeconds, next.end))
     }
 
     private fun write(m: Meeting) {

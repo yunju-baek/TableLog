@@ -30,7 +30,6 @@ import work.yunju.tablelog.data.timeLabel
     val initial = remember { runCatching { store.read() } }
     val local by LocalAiService.state.collectAsState()
     val scope = rememberCoroutineScope()
-    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
     var url by remember { mutableStateOf(initial.getOrNull()?.baseUrl.orEmpty()) }
     var speech by remember { mutableStateOf(initial.getOrNull()?.speechModel.orEmpty()) }
     var model by remember { mutableStateOf(initial.getOrNull()?.textModel.orEmpty()) }
@@ -40,9 +39,8 @@ import work.yunju.tablelog.data.timeLabel
     var connection by remember { mutableStateOf<String?>(null) }
     var checking by remember { mutableStateOf(false) }
     var pairingCode by remember { mutableStateOf("") }
-    var installConsent by remember { mutableStateOf(false) }
-    val locked = local.running || vm.busy != null || checking
-    val installed = vm.localModels.installed()
+    val recording by work.yunju.tablelog.audio.RecordingService.state.collectAsState()
+    val locked = local.running || vm.busy != null || checking || recording.running
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.widthIn(max = 720.dp).fillMaxWidth().padding(16.dp).heightIn(max = 850.dp), shape = MaterialTheme.shapes.extraLarge) {
             Column(Modifier.padding(24.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -50,23 +48,15 @@ import work.yunju.tablelog.data.timeLabel
                 SpeechModeSelector(vm.speechMode, vm::chooseSpeechMode, enabled = !locked)
                 Text(if (vm.speechMode == SpeechMode.LOCAL) "녹음은 이 태블릿에서 처리합니다. 서버로 자동 전환하지 않습니다." else "전사를 실행할 때 녹음 전송을 확인합니다. 서버 연결에 실패해도 녹음은 기기에 남습니다.", color = Muted)
                 HorizontalDivider()
-                Text("한국어 로컬 전사", style = MaterialTheme.typography.titleLarge)
-                Text(if (installed) "모델 설치됨 · 인터넷 없이 사용 가능" else "약 230MB의 모델을 한 번 설치하면 인터넷 없이 사용할 수 있습니다. 설치에는 녹음을 전송하지 않습니다.")
-                if (local.running) {
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
-                    Text(local.message.orEmpty())
-                    TextButton(onClick = vm::cancelAI) { Text("로컬 작업 취소") }
-                }
-                OutlinedButton(onClick = { installConsent = true }, enabled = !locked) { Text(if (installed) "모델 검사·복구" else "한국어 모델 설치") }
-                TextButton(onClick = { uriHandler.openUri("https://huggingface.co/FunAudioLLM/SenseVoiceSmall") }) { Text("모델 출처·이용 조건") }
+                ModelSettings(vm, locked)
                 HorizontalDivider()
                 Text("서버 연결", style = MaterialTheme.typography.titleLarge)
                 OutlinedButton(onClick = {
                     if (AISettings(url).canonicalUrl() != ServerPairing.MAC_STUDIO_URL) key = ""
                     url = ServerPairing.MAC_STUDIO_URL; speech = ServerPairing.MAC_STUDIO_MODEL
-                    model = ""; connection = null; error = null
+                    model = ServerPairing.MAC_STUDIO_TEXT_MODEL; connection = null; error = null
                 }, enabled = !locked) { Text("맥스튜디오 선택") }
-                Text("맥스튜디오는 한국어 음성 전사를 처리합니다. 회의록 자동 요약은 별도 회의록 모델을 갖춘 서버가 필요합니다.", color = Muted)
+                Text("맥스튜디오에서 음성 전사와 회의 요약·질문·교정을 처리합니다. 모델은 작업 후 메모리에서 해제합니다.", color = Muted)
                 OutlinedTextField(pairingCode, { pairingCode = it }, modifier = Modifier.fillMaxWidth(), enabled = !locked,
                     label = { Text("맥에서 발급한 일회용 연결 코드") }, placeholder = { Text("ABCD-EFGH-JKLM") }, singleLine = true,
                     visualTransformation = PasswordVisualTransformation())
@@ -121,15 +111,12 @@ import work.yunju.tablelog.data.timeLabel
                             .onSuccess { vm.message = "서버 연결을 저장했습니다."; onDismiss() }.onFailure { error = it.message }
                     }, enabled = !locked) { Text("서버 연결 저장") }
                 }
-                Text("Android 0.3.0 · 로컬 전사는 녹음 종료 후 실행합니다. 자동 화자 분리와 로컬 회의록 요약은 아직 제공하지 않습니다.", style = MaterialTheme.typography.bodySmall, color = Muted)
+                Text("Android 0.4.0 · 녹음 중 자동 전사와 종료 후 마무리를 지원합니다. 자동 화자 분리와 로컬 회의록 요약은 아직 제공하지 않습니다.", style = MaterialTheme.typography.bodySmall, color = Muted)
                 TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("닫기") }
             }
         }
     }
-    if (installConsent) AlertDialog(onDismissRequest = { installConsent = false }, title = { Text("한국어 모델을 설치할까요?") },
-        text = { Text("Hugging Face와 GitHub에서 약 230MB를 내려받습니다. Wi-Fi 사용을 권장합니다. 녹음은 전송하지 않습니다. 중단 후 다시 누르면 이어받습니다.") },
-        confirmButton = { Button(onClick = { installConsent = false; vm.startLocal(install = true) }) { Text("다운로드") } },
-        dismissButton = { TextButton(onClick = { installConsent = false }) { Text("취소") } })
+
 }
 
 @Composable fun SpeechModeSelector(mode: SpeechMode, onSelect: (SpeechMode) -> Unit, enabled: Boolean) {
@@ -152,7 +139,9 @@ import work.yunju.tablelog.data.timeLabel
                     if (proposal.minutes != null) Text(proposal.minutes)
                     proposal.utterances?.forEach {
                         Text("${timeLabel(it.start)} · ${it.speaker}", color = Forest, style = MaterialTheme.typography.labelLarge)
-                        Text(it.text, Modifier.padding(top = 6.dp, bottom = 18.dp))
+                        val before = proposal.original?.find { original -> original.id == it.id }?.text
+                        if (before != null && before != it.text) Text("원문: $before", color = Muted, modifier = Modifier.padding(top = 6.dp))
+                        Text(if (before != null && before != it.text) "교정: ${it.text}" else it.text, Modifier.padding(top = 6.dp, bottom = 18.dp))
                     }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {

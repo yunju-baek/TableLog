@@ -1,100 +1,94 @@
-# 테이블로그 Android 0.3.0
+# 테이블로그 Android 0.4.0
 
-회의를 녹음하고 발언·회의록·메모를 기기에 보관하는 Kotlin·Jetpack Compose 앱입니다. 주 대상은 **레노버 샤오신패드 프로 13(TB376FC), RAM 8GB**입니다. 전사 방식은 **태블릿 로컬 / 서버** 중 직접 선택하며, 오류가 나도 다른 방식으로 자동 전환하지 않습니다.
+회의를 녹음하면서 자동으로 전사하고 발언·회의록·메모·참고자료를 기기에 보관합니다. Kotlin·Jetpack Compose 앱이며 주 대상은 RAM 8GB 태블릿입니다. 전사 방식은 **태블릿 로컬 / 서버** 중 선택합니다. 오류가 나도 다른 서버로 자동 전환하지 않습니다.
 
 ## 설치와 첫 사용
 
-GitHub Releases의 `TableLog-0.3.0.apk`는 배포 키로 서명한 release 빌드입니다. Android 8.0(API 26) 이상의 arm64·x86_64 기기를 지원합니다. Play Store 출시는 별도 작업입니다. 기존 debug APK와 서명 키가 달라 바로 덮어 설치할 수 없습니다. 기존 기록의 JSON·WAV를 먼저 내보낸 다음 테스트 앱을 삭제하고 설치하세요. 새 release 버전끼리는 같은 서명으로 업데이트합니다.
+GitHub Releases의 `TableLog-0.4.0.apk`는 0.3.0과 같은 배포 키로 서명했습니다. **0.3.0을 삭제하지 말고 덮어 설치하세요.** 회의 기록·설정·기존 SenseVoice 모델을 유지합니다. Android 8.0(API 26) 이상, arm64·x86_64를 지원합니다. 이전 debug APK는 서명이 다르므로 기록을 내보낸 뒤 별도로 이전해야 합니다.
 
-Fish Audio 합성 앱은 별도 `FishAudio-0.1.0.apk`이며 [사용 안내](FISH_AUDIO.md)를 참조하세요.
+1. **설정 → 로컬 음성 모델**에서 모델을 선택하고 다운로드합니다. 이미 설치한 SenseVoice는 그대로 사용합니다.
+2. **새 회의 녹음**에서 **녹음 중 자동 전사**를 켜고 시작합니다. 기본값은 켜짐입니다. 발화가 끝나는 대로 녹취가 자동 저장됩니다.
+3. **저장하고 종료**하면 남은 전사도 자동으로 마무리합니다. 매번 전사 버튼과 검토·적용을 누를 필요가 없습니다.
+4. 기존 녹취를 **다시 전사**하거나 AI로 교정할 때는 기존 내용을 보호하기 위해 전후 결과를 검토하고 적용합니다.
+5. 맥스튜디오는 **설정 → 맥스튜디오 선택** 후 맥의 `Server/tablelog-server issue-code`로 발급한 코드를 입력합니다. 연결하면 음성 전사와 회의 AI 모델이 설정됩니다. 0.3.0에서 이미 연결한 경우 회의 AI 모델에 `tablelog-qwen3.5-4b`를 입력하거나 새 코드로 연결합니다.
 
-1. `TableLog-0.3.0.apk`를 태블릿에 설치합니다. USB 연결 시 `adb install -r TableLog-0.3.0.apk`를 사용할 수 있습니다.
-2. 설정에서 **한국어 모델 설치**를 누릅니다. Hugging Face와 GitHub에서 약 230MiB를 한 번 다운로드합니다. 설치에는 녹음을 전송하지 않습니다. 중단 후 다시 누르면 이어받고, 파일 크기와 SHA-256을 확인한 뒤 설치를 완료합니다.
-3. **새 회의 녹음**을 누르고 마이크 권한을 허용합니다. 알림 권한도 허용하면 앱 밖에서 녹음과 로컬 작업을 제어할 수 있습니다.
-4. 녹음을 **저장**한 뒤 **태블릿 로컬 → 로컬 전사**를 누릅니다. 설치가 끝난 모델은 인터넷 없이 실행합니다. 결과를 검토하고 적용해야 기존 녹취가 바뀝니다.
-5. 맥스튜디오는 **설정 → 맥스튜디오 선택**을 누르고 맥에서 `Server/tablelog-server issue-code`로 발급한 일회용 코드를 입력합니다. **코드로 연결·저장**하면 서버 전사로 전환됩니다. 다른 서버의 HTTPS 주소·기기 토큰·모델을 직접 입력할 수도 있습니다. 실행 전 실제 전송 대상과 보낼 자료를 확인합니다.
+Fish Audio 합성 앱은 별도 [FishAudio 0.1.0](FISH_AUDIO.md)이며 이번 릴리스에서 변경하지 않았습니다.
 
-로컬 회의록 요약과 자동 화자 분리는 아직 없습니다. **서버 회의록**은 별도 버튼이며, 로컬 전사를 선택했더라도 이 버튼을 누르면 녹취·메모의 서버 전송 확인을 거칩니다. 서버 없이 회의록 양식과 직접 편집을 사용할 수 있습니다.
+## 선택 가능한 로컬 모델
 
-## 8GB 태블릿에서의 로컬 처리
+모두 한국어·영어를 지원하는 다국어 모델입니다. 설치한 모델은 드롭다운으로 교체하며 한 번에 하나만 실행합니다. 언어는 자동·한국어·영어 중 선택합니다.
 
-- sherpa-onnx 2.0.1의 CPU 실행 경로로 SenseVoice Small INT8 한국어 전사를 수행합니다. 음성 인식은 2스레드, Silero VAD는 1스레드로 제한합니다. GPU·NPU 가속은 사용하지 않습니다.
-- 녹음 종료 후 한 작업씩 처리합니다. 원본 WAV를 작은 프레임으로 읽고, 발화 구간은 약 20초 안에서 나눕니다. 전체 녹음을 메모리에 올리지 않으며 네이티브 스트림·모델은 처리 종료 시 해제합니다.
-- 시각은 VAD가 찾은 발화 구간 기준입니다. 단어별 강제 정렬이나 자동 화자 식별을 수행한 결과가 아니며 화자는 **화자 미지정**으로 표시합니다. 한국어 띄어쓰기·고유명사와 긴 발화 경계는 실제 회의로 품질을 평가해야 합니다.
-- 모델 설치와 전사는 알림이 있는 foreground service에서 실행하며 화면을 꺼도 작업을 이어갈 수 있습니다. 취소 시 현재 네이티브 구간 처리를 마친 후 해제하므로 즉시 끝나지 않을 수 있습니다. 녹음과 무거운 로컬 작업은 동시에 시작하지 않습니다.
-- 완료 결과는 `local-proposal.json`에 원자적으로 저장해 앱을 다시 열어도 검토할 수 있습니다. 결과 적용 시 회의 revision을 확인하여 그동안 수정한 기록을 덮어쓰지 않습니다.
-- 프로세스가 종료되면 진행 중 전사는 중단됩니다. 원본은 보존하며 사용자가 다시 실행합니다. 처리 중간부터 재개하는 기능은 아직 없습니다. 설치 중단은 `.part` 파일을 이용해 이어받습니다.
+| 모델 | 다운로드 합계 | 사용 특성 |
+| --- | ---: | --- |
+| SenseVoice Small INT8 | 약 240MB (229MiB) | 기존 기본 모델, 다국어 회의용 |
+| Whisper Tiny INT8 | 약 104MB | 가장 작고 가벼움 |
+| Whisper Base INT8 | 약 161MB | 작은 Whisper 모델 |
+| Whisper Small INT8 | 약 376MB | 더 큰 모델을 비교할 때 선택 |
+| Whisper Medium INT8 | 약 947MB | 고사양 태블릿에서 비교, 처리 지연·메모리 증가 가능 |
 
-모델 파일은 APK·Git에 넣지 않습니다. [고정 다운로드 목록과 해시](app/src/main/assets/local-models.json), [SenseVoice 모델 안내](https://k2-fsa.github.io/sherpa/onnx/sense-voice/pretrained.html), [모델 원 출처·이용 조건](https://huggingface.co/FunAudioLLM/SenseVoiceSmall)을 참조하세요. 런타임·모델 고지는 `app/src/main/assets/licenses/`에 포함합니다.
+용량은 VAD·토큰 파일을 포함한 저장 용량이며 실행 RAM 사용량과 다릅니다. 실기기에서 Small부터 비교해 보고 녹음보다 전사가 늦어지면 작은 모델로 바꾸세요. Medium의 실제 TB376FC 실시간 속도·발열은 아직 측정하지 않았습니다. 모델 크기만으로 한국어 회의 정확도가 보장되지는 않습니다.
 
-## 태블릿 화면
+고정 revision·크기·SHA-256은 [모델 목록](app/src/main/assets/local-models.json)에 있습니다. HTTPS 다운로드·이어받기·해시 검사를 사용하며 APK에는 모델을 넣지 않습니다. **모델 삭제**는 선택한 모델만 지우고 회의·다른 모델은 보존합니다. CPU 음성 인식 2스레드, VAD 1스레드이며 GPU/NPU 가속은 사용하지 않습니다.
 
-사용 가능한 창 너비가 1000dp 이상이면 왼쪽 회의 목록과 오른쪽 회의 상세를 함께 표시합니다. 세로·분할 창에서 너비가 줄면 목록과 상세를 한 영역씩 보여줍니다. 물리 해상도에 고정하거나 가로 방향을 강제하지 않습니다. 녹취·회의록·메모는 상세 영역의 탭으로 전환합니다. 세 영역 동시 배치는 후속 작업입니다.
+## 녹음과 전사
 
-Lenovo 공식 사양은 Snapdragon 8s Gen 4, 13인치 3504×2190입니다. 사용자의 RAM 8GB는 확인했으며 설치된 OS와 제조사 절전 동작은 실기기 확인 전입니다. [Lenovo 사양](https://item.lenovovip.com.cn/pd/1053160.html), [Android 적응형 레이아웃](https://developer.android.com/develop/ui/compose/layouts/adaptive/list-detail).
+마이크 저장과 전사는 별도로 진행됩니다. 로컬 전사는 VAD로 완성한 발화 구간을 처리하므로 Mac과 같은 토큰 단위 스트리밍은 아닙니다. 전사가 늦어져도 원본 WAV를 계속 기록하고 밀린 부분을 파일에서 읽습니다. 전체 녹음을 RAM에 올리지 않으며 작업이 끝나면 모델을 해제합니다.
 
-## 현재 서버 연결 계약
+서버 모드도 녹음 중 짧은 구간을 HTTPS로 순서대로 전송합니다. 자동 전사 구간은 최대 약 25초, 저장된 파일의 재전사는 최대 5분 단위입니다. 마지막 구간까지 처리하며 시각은 전체 녹음 기준입니다. 무음은 서버로 보내지 않습니다. 자동 화자 분리는 없어 화자는 **화자 미지정**으로 시작합니다.
 
-0.3.0은 맥스튜디오 기본 주소 `https://yunju.work/tablelog-api/v1`와 일회용 코드 연결을 제공합니다. 코드는 맥에서 발급하며 10분간 한 번 유효합니다. 교환한 기기 토큰은 30일 후 만료되고 맥 CLI에서 개별 해제할 수 있습니다. [서버 실행·연결 안내](../Server/README.md). 다른 HTTPS 서버의 토큰 수동 등록도 유지합니다.
+녹음·설치·전사는 알림이 있는 foreground service에서 수행합니다. 일시정지·재개·화면 회전에 대응하며 중단된 WAV 헤더와 작업 상태를 다음 실행에서 복구합니다. 프로세스가 종료되면 원본과 완료된 녹취는 남고, 미완료 전사는 다시 실행해야 합니다. 제조사 절전 정책과 장시간 실행은 실기기 확인이 필요합니다.
 
-| 경로 | 요청 | 응답 |
-| --- | --- | --- |
-| `GET /models` | `Authorization: Bearer <기기 토큰>`만 전송 | `data` 배열. 연결 확인용이며 녹음·녹취를 보내지 않음 |
-| `POST /audio/transcriptions` | multipart: `file` WAV, `model`, `language=ko`, `response_format=verbose_json` | `segments: [{start, end, text}]` 또는 `text` |
-| `POST /chat/completions` | JSON: `model`, `messages`, `stream=false` | `choices[0].message.content` |
+## 회의 편집과 AI
 
-세 경로 모두 설정한 기본 주소 아래에 붙습니다. 서버 전사는 현재 최대 5분 WAV를 순서대로 보내고 응답 시각을 전체 회의의 초 단위로 변환합니다. 단어 `words[]`만 반환하는 NeMo 서버는 API 계층에서 문장 `segments[]`로 변환해야 시각을 활용할 수 있습니다. CLOVA의 밀리초 시각도 변환해야 합니다. 현재 앱은 서버 응답의 화자 필드를 사용하지 않습니다. `text`만 있으면 해당 5분 전체를 한 발언으로 보관합니다. 구간 경계 문맥 연결·업로드 재개·서버 작업 큐는 아직 없습니다.
+- 녹음 중 메모에 현재 시각을 붙이고, 최신 발언 자동 따라가기를 켜거나 끕니다. 녹취 검색, 시각별 재생, 발언 편집·분리·삭제, 같은 화자 이름 일괄 변경을 지원합니다.
+- **편집 되돌리기**는 직전 편집을 복원합니다. 그 뒤 새 발언이나 다른 수정이 생기면 오래된 상태로 덮어쓰지 않도록 비활성화합니다.
+- **회의 AI**에서 지금 요약, 내용 질문, 녹취 교정, 회의록 생성을 실행합니다. 교정과 회의록 교체는 검토 후 적용합니다. 교정은 발언 ID·시각·화자를 유지합니다.
+- 녹음 시작 화면의 **자동 요약·회의록**을 켜면 약 2분마다 새 발언을 요약하고 종료 후 회의록을 만듭니다. 전송 대상을 시작 화면에서 확인하며 기본값은 꺼짐입니다. 자동 회의록과 직접 편집본을 별도로 보관합니다.
+- 긴 회의록은 구간별로 분석·합칩니다. 긴 회의 질문은 관련 발언을 골라 보내고 포함 범위를 표시합니다. 전체 회의를 항상 한 번에 이해한다는 의미는 아닙니다.
+- 태블릿 단독 로컬 LLM은 없습니다. 회의 AI는 설정한 HTTPS 서버를 사용합니다. 맥 기본 서버는 로컬 Qwen3.5 4B 4bit이며 Mac 앱의 Codex·Claude·Gemini 로그인이나 구독을 공유하지 않습니다. 결과 품질도 동일하다고 보장하지 않습니다.
 
-회의록 요청은 제목·일시·녹취·메모를 보냅니다. 녹취와 메모가 합계 10만 자를 넘으면 중단하고, 임의로 잘라 보내지 않습니다. 일부 구간만 성공한 전사는 적용하지 않습니다. 요청 취소 시 네트워크 호출을 취소하고, 전송 확인 시점의 서버 설정을 해당 요청에 고정합니다.
+## 파일 가져오기와 내보내기
 
-맥스튜디오 기본값은 Whisper 음성 전사만 제공합니다. 회의록 모델은 비워 두며 자동 요약은 별도 `/chat/completions` 서버가 필요합니다. Mac의 Codex·Claude Code·Gemini CLI 로그인이나 구독을 자동 연결하지 않습니다.
+상단의 **음성 파일 가져와 자동 전사**에서 M4A/AAC·MP3·WAV를 선택합니다. 기기에서 디코딩 가능한 형식에 한하며, 선택한 로컬 모델이 설치되어 있어야 합니다. 원본 파일은 유지하고 새 회의를 생성합니다. **참고자료 가져오기**는 UTF-8 TXT·Markdown 파일당 80KB까지 지원합니다. 자료 탭에서 편집하고 회의 AI 맥락으로 사용합니다.
 
-## 서버 인증과 등록 방식
+내보내기는 Mac 녹취 JSON, Android 전체 기록 JSON, Markdown, WAV, **M4A(AAC)**를 지원합니다. 앱 내부 녹음은 복구·재전사를 위해 16kHz mono PCM16 WAV로 보관하며 분당 약 1.92MB입니다. M4A 저장 시 AAC-LC 96kbps로 변환합니다.
 
-### 현재 앱에 구현한 범위
+`files/meetings/<UUID>/`에 회의 JSON·오디오·수정 전 이력·가져온 원본 JSON을 보관합니다. Android JSON은 요약·자동 회의록·질문 기록·자료를 포함하지만 오디오는 별도 내보내야 합니다. Mac JSON은 녹취 교환용이며 모든 자료·프로필·편집 이력의 완전 왕복을 뜻하지 않습니다. 앱 삭제 시 전용 저장소도 삭제되고 OS 클라우드 백업은 비활성화되어 있습니다.
 
-- 토큰을 Android Keystore의 AES-GCM 키로 암호화하고, 정규화한 서버 기본 주소를 인증 데이터(AAD)로 사용합니다. 다른 주소로 암호문을 옮겨 재사용할 수 없습니다. 이는 기기 내 보관 보호이며 서버가 기기 신원을 검증했다는 뜻은 아닙니다.
-- 토큰은 요청의 Authorization 헤더로만 보내며 URL·로그·내보내기·화면 복원 상태에 넣지 않습니다. 서버 주소를 편집하면 입력 중인 기존 토큰을 지웁니다.
-- 일반 TLS 인증서 검증을 유지합니다. HTTP, URL 내 아이디·비밀번호·쿼리 키, 요청 리디렉션은 거부합니다. 인증서 검증을 끄거나 자체 서명 인증서를 무조건 신뢰하는 우회는 제공하지 않습니다.
-- HTTP 401은 인증 만료/오류, 403은 권한 부족으로 구분해 안내합니다. 자동 재로그인·토큰 갱신은 아직 없습니다.
-- **연결 지우기**는 이 기기에 저장된 서버 설정만 삭제합니다. 서버의 토큰 폐기는 서버 기기 관리에서 해야 합니다. 모델·회의 기록·전사 방식은 그대로 유지합니다.
+## Mac과 남은 차이
 
-### 맥스튜디오 기기 연결
+[전체 기능 비교표](PARITY.md)를 참고하세요. 자동 화자 구분·목소리 등록/학습, 실시간 AI 문맥 교정, PDF·이미지 OCR·URL·폴더 동기화, 자료 버전 편집은 아직 Android에 없습니다. 태블릿은 목록/상세의 적응형 화면과 녹취·회의록·메모·자료 탭을 사용합니다.
 
-코드 교환 `POST /devices/connect`에는 일회용 코드만 전송합니다. 서버가 반환한 개별 토큰을 위 방식으로 저장합니다. 서버는 코드·토큰의 해시만 보관하고 `/models`와 전사 요청을 인증합니다. 기기 목록과 코드 발급은 로컬 CLI에서만 가능합니다. 별도의 웹 승인 화면이나 OAuth 폴링 절차는 사용하지 않습니다.
+## 서버 연결과 보안
 
-공개 APK에 공용 관리자 키나 장기 API 키를 포함하지 않습니다. 코드 교환은 HTTPS이며 리디렉션을 따라가지 않습니다. 서버의 요청 크기·동시 실행 제한과 기기별 폐기는 [서버 안내](../Server/README.md)에 정리했습니다. 연결 코드와 토큰을 다른 사람에게 전달하면 그 사람이 해당 기기로 접근할 수 있습니다.
+기본 주소는 `https://yunju.work/tablelog-api/v1`입니다. 일회용 코드는 10분간 한 번 유효하며 개별 기기 토큰은 30일 후 만료됩니다. 코드 발급·기기 폐기는 맥 CLI에서만 수행합니다. [서버 설치·운영 안내](../Server/README.md).
 
-## 저장·호환 범위
+토큰은 Android Keystore AES-GCM으로 암호화하고 서버 주소에 결합합니다. 공개 APK에는 관리자 키·공용 API 키·개인 녹음·모델을 넣지 않습니다. HTTP·주소 내 계정·리디렉션은 거부하고 일반 TLS 검증을 유지합니다. 주소를 바꾸면 기존 토큰을 재사용하지 않습니다. **연결 지우기**는 앱 설정만 지우며 기기 폐기는 서버에서 별도로 수행합니다.
 
-녹음은 16kHz mono PCM16 WAV이며 분당 약 1.92MB입니다. 녹음 서비스는 실제 PCM 샘플 수로 시간을 계산하고 WAV 헤더를 주기적으로 저장합니다. 중단 후 남은 PCM으로 길이를 복구합니다.
+| 경로 | 요청 |
+| --- | --- |
+| `GET /models` | 인증 헤더만 전송, 녹음·녹취 없음 |
+| `POST /audio/transcriptions` | WAV, 음성 모델, language=ko/en/auto |
+| `POST /chat/completions` | 텍스트 모델, 녹취·메모·자료·사용자 요청 |
 
-`files/meetings/<UUID>/`에 `meeting.json`, `recording.wav`, 수정 전 `revisions/`, 가져온 `import-original.json`, 완료된 로컬 전사의 `local-proposal.json`을 보관합니다. 가져오기는 새 UUID를 만들며 외부 파일 경로를 따라가지 않습니다. 휴지통은 논리적 삭제입니다.
-
-Mac용 녹취 JSON과 Android 기록 JSON, Markdown, WAV 내보내기를 지원합니다. Mac의 확정된 `corrected_text`를 가져오며 원본 JSON도 보존합니다. Mac 자료 첨부·음성 프로필·AI 대화·회의록 내부 상태·녹음 경로가 완전히 왕복하는 형식은 아닙니다. Android 회의록과 메모까지 보관하려면 Android 기록 JSON 또는 Markdown을 사용하고 WAV는 별도로 내보내야 합니다. 변경 이력과 미적용 로컬 결과는 내보내기에 포함되지 않습니다.
-
-앱 삭제 시 앱 전용 저장소도 삭제됩니다. OS 클라우드 백업과 기기 이전은 비활성화했으므로 필요한 자료를 먼저 내보내세요. 모델·인증 토큰은 내보내기에 포함하지 않습니다. 예시 회의는 가상 자료임을 명시합니다.
+음성/텍스트 전송은 해당 동작에서 표시한 서버에만 이루어집니다. 자동 AI를 켜면 녹음 중 전사가 로컬이어도 텍스트는 설정한 서버로 보냅니다. 서버 응답 화자 필드는 아직 사용하지 않습니다. 취소하면 현재 네트워크 호출도 취소합니다.
 
 ## 빌드와 검증
 
-필요 도구는 JDK 17, Python 3, Android SDK Platform 36, Build Tools 35.0.0입니다. SDK 경로는 `local.properties`의 `sdk.dir` 또는 `ANDROID_HOME`으로 지정합니다.
-
-```bash
-./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug \
-  :fishapp:testDebugUnitTest :fishapp:lintDebug :fishapp:assembleDebug
-./gradlew :app:connectedDebugAndroidTest
-```
-
-Gradle이 `scripts/fetch-sherpa.py`로 고정 버전 AAR을 내려받고 SHA-256을 검증합니다. AAR은 `app/build/dependencies/`에만 보관합니다. APK에는 추론 런타임이 포함되며 모델은 별도 설치합니다.
-
-일반 기기 테스트는 모델이 없으면 실제 추론 테스트를 건너뜁니다. 실제 추론 테스트를 실행하려면 모델 목록의 파일과 공개 `test_wavs/ko.wav`를 앱 전용 저장소의 `ai-models/sensevoice-int8-v1/`, `verification/ko.wav`에 준비해야 합니다. `LocalAiTest.installFromPublicSourcesWhenExplicitlyRequested`는 `downloadModel=true`를 명시해야 실제 모델을 다운로드합니다. 테스트 입력의 출처는 [공개 한국어 샘플](https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/blob/2365baeacb507f821a0c8120fcee3d484dba7a07/test_wavs/ko.wav)이며 사용자 녹음을 쓰지 않습니다.
-
-GitHub Actions는 단위 테스트·lint·APK 빌드와 artifact 생성을 수행합니다. [검증 기록](VERIFICATION.md)에 에뮬레이터 확인과 실기기 미검증 범위를 구분했습니다. TB376FC의 2시간 녹음, 장시간 전사·발열·배터리·절전 정책과 실제 한국어 회의 정확도는 실기기에서 확인해야 합니다.
-
-배포 빌드에는 로컬에서만 관리하는 키 저장소와 비밀번호를 환경 변수 `TABLELOG_SIGNING_STORE`, `TABLELOG_SIGNING_PASSWORD`로 주입합니다. alias는 `tablelog`입니다. 키를 소스·APK·릴리스에 넣지 마세요. 변수 없이 release를 빌드하면 서명하지 않은 APK가 생성됩니다.
+JDK 17, Python 3, Android SDK Platform 36, Build Tools 35.0.0이 필요합니다. `local.properties`의 `sdk.dir` 또는 `ANDROID_HOME`으로 SDK를 지정합니다.
 
 ```sh
-./gradlew :app:assembleRelease :fishapp:assembleRelease
+./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
 ```
 
-현재 배포 키는 이 맥의 `~/Library/Application Support/TableLogAndroidSigning/`에서 관리합니다. 이 키를 잃으면 기존 설치본에 업데이트할 수 없으므로 별도 안전한 백업이 필요합니다.
+고정 sherpa-onnx 2.0.1 AAR을 다운로드해 SHA-256을 검사합니다. GitHub Actions에서도 테스트·lint·빌드합니다. [검증 기록](VERIFICATION.md)은 에뮬레이터와 실기기 범위를 구분합니다.
+
+기기 테스트 중 네이티브 모델·서버 테스트는 명시적으로 준비한 모델/공개 샘플/일회용 코드가 필요합니다. `connectedDebugAndroidTest`는 앱을 재설치·제거할 수 있으므로, 준비된 파일을 유지하려면 debug/test APK 설치 후 `adb shell am instrument`로 실행합니다. `catalogModel`로 검사할 모델 ID를 지정하고 `downloadModel=true`는 네트워크 다운로드 검사에만 사용합니다. 시험용 서버 기기는 검사 뒤 폐기합니다.
+
+배포는 로컬 전용 키를 환경 변수로 주입합니다. `TABLELOG_SIGNING_STORE`, `TABLELOG_SIGNING_PASSWORD`, alias `tablelog`를 사용하며 변수 없이 빌드하면 unsigned입니다.
+
+```sh
+./gradlew :app:assembleRelease
+```
+
+키 저장소·비밀번호·기기 DB는 저장소와 릴리스에 넣지 않습니다.

@@ -1,14 +1,24 @@
 name: Android
 on:
   pull_request:
-    paths: ['Android/**', '.github/workflows/android.yml']
+    paths: ['Android/**', 'Server/**', '.github/workflows/android.yml']
   push:
     branches: [main]
-    paths: ['Android/**', '.github/workflows/android.yml']
+    paths: ['Android/**', 'Server/**', '.github/workflows/android.yml']
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
+  server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install API test dependencies
+        run: python3 -m pip install -r Server/requirements-api.txt
+      - name: Test authentication, limits and workers
+        working-directory: Server
+        run: python3 -m unittest -v test_server
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 20

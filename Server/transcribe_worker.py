@@ -14,6 +14,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--language", choices=("ko", "en", "auto"), default="ko")
     args = parser.parse_args()
     import numpy as np
     import mlx.core as mx
@@ -29,9 +30,9 @@ def main():
     model.set_alignment_heads(json.loads((processor / "generation_config.json").read_text())["alignment_heads"])
     with wave.open(str(args.input), "rb") as audio:
         waveform = np.frombuffer(audio.readframes(audio.getnframes()), dtype="<i2").astype(np.float32) / 32768
-    result = model.generate(waveform, language="ko", word_timestamps=False, temperature=0.0,
+    result = model.generate(waveform, language=None if args.language == "auto" else args.language, word_timestamps=False, temperature=0.0,
                             condition_on_previous_text=False, verbose=False)
-    payload = {"text": result.text, "language": "ko", "segments": [
+    payload = {"text": result.text, "language": args.language, "segments": [
         {"start": s["start"], "end": s["end"], "text": s["text"]} for s in result.segments]}
     args.output.write_text(json.dumps(payload, ensure_ascii=False))
 

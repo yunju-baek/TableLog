@@ -17,10 +17,11 @@ import work.yunju.tablelog.audio.RecordingService
 import work.yunju.tablelog.data.*
 import java.io.File
 
-data class LocalAiState(val running: Boolean = false, val message: String? = null, val completedMeetingId: String? = null)
+data class LocalAiState(val running: Boolean = false, val message: String? = null, val completedMeetingId: String? = null, val savedMeetingId: String? = null)
 
 class LocalAiService : Service() {
     companion object {
+        const val IMPORT = "work.yunju.tablelog.IMPORT_AUDIO"
         const val INSTALL = "work.yunju.tablelog.INSTALL_LOCAL_MODEL"
         const val TRANSCRIBE = "work.yunju.tablelog.TRANSCRIBE_LOCAL"
         const val CANCEL = "work.yunju.tablelog.CANCEL_LOCAL"
@@ -48,10 +49,11 @@ class LocalAiService : Service() {
         if (intent?.action == CANCEL) { job?.cancel(); if (job == null) stopSelf(); return START_NOT_STICKY }
         if (job != null) return START_NOT_STICKY
         val install = intent?.action == INSTALL
-        if (!install && intent?.action != TRANSCRIBE) { stopSelf(); return START_NOT_STICKY }
+        val importing = intent?.action == IMPORT
+        if (!install && !importing && intent?.action != TRANSCRIBE) { stopSelf(); return START_NOT_STICKY }
         try {
-            check(RecordingService.state.value.meetingId == null) { "녹음을 저장한 뒤 로컬 AI를 실행해 주세요." }
-            val label = if (install) "한국어 모델 설치 준비 중" else "기기에서 전사 준비 중"
+            check(!RecordingService.state.value.running) { "녹음을 저장한 뒤 로컬 AI를 실행해 주세요." }
+            val label = if (install) "음성 모델 설치 준비 중" else if (importing) "음성 파일 가져오는 중" else "기기에서 전사 준비 중"
             val type = if (!install && Build.VERSION.SDK_INT >= 35) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING else ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
             if (Build.VERSION.SDK_INT >= 29) startForeground(2, notification(label), type) else startForeground(2, notification(label))
             mutableState.value = LocalAiState(true, label)
@@ -60,11 +62,25 @@ class LocalAiService : Service() {
             }
             val id = intent?.getStringExtra("meetingId")
             job = scope.launch {
+                var importedId: String? = null
                 try {
-                    val models = LocalModelStore(this@LocalAiService)
-                    if (install) {
+                    val models = LocalModelStore(this@LocalAiService, intent?.getStringExtra("modelId"))
+                    if (importing) {
+                        val app = application as TableLogApplication
+                        check(app.ready.value)
+                        val uri = intent?.data ?: error("음성 파일을 선택해 주세요.")
+                        val title = intent.getStringExtra("title").orEmpty().ifBlank { "가져온 녹음" }.take(500)
+                        val meeting = app.repository.save(Meeting(title = title, audioName = "recording.wav", status = "importing", transcriptionModel = models.definition.name))
+                        importedId = meeting.id
+                        val audio = app.repository.audioFile(meeting)!!
+                        val duration = work.yunju.tablelog.audio.AudioImporter.decode(app, uri, audio) { update("음성 파일 변환 $it%") }
+                        app.repository.update(meeting.id, snapshot = false) { it.copy(status = "saved", durationSeconds = duration, transcriptionStatus = "running") }
+                        val output = LocalTranscriber(models).transcribe(audio) { update("가져온 음성 자동 전사 $it%") }
+                        app.repository.update(meeting.id, snapshot = false) { it.copy(utterances = output, transcriptionStatus = "complete") }
+                        mutableState.value = LocalAiState(message = "음성과 녹취를 저장했습니다.", savedMeetingId = meeting.id)
+                    } else if (install) {
                         var previous = -1
-                        models.install { percent -> if (percent != previous) { previous = percent; update("한국어 모델 설치 $percent%") } }
+                        models.install { percent -> if (percent != previous) { previous = percent; update("${models.definition.name} 설치 $percent%") } }
                         mutableState.value = LocalAiState(message = "한국어 모델 설치 완료. 이제 인터넷 없이 전사할 수 있습니다.")
                     } else {
                         val app = application as TableLogApplication
@@ -84,12 +100,20 @@ class LocalAiService : Service() {
                         mutableState.value = LocalAiState(message = "로컬 전사가 끝났습니다. 결과를 검토해 주세요.", completedMeetingId = meeting.id)
                     }
                 } catch (e: CancellationException) {
-                    mutableState.value = LocalAiState(message = "로컬 작업을 취소했습니다. 녹음 원본은 보존했습니다.")
+                    mutableState.value = LocalAiState(message = "로컬 작업을 취소했습니다. 녹음 원본은 보존했습니다.", savedMeetingId = importedId)
                 } catch (e: Exception) {
-                    mutableState.value = LocalAiState(message = e.message ?: "로컬 작업을 완료하지 못했습니다.")
+                    mutableState.value = LocalAiState(message = e.message ?: "로컬 작업을 완료하지 못했습니다.", savedMeetingId = importedId)
                 } catch (e: LinkageError) {
                     mutableState.value = LocalAiState(message = "이 기기에서 로컬 음성 엔진을 불러오지 못했습니다.")
                 } finally {
+                    importedId?.let { imported -> runCatching {
+                        val repo = (application as TableLogApplication).repository
+                        val current = repo.get(imported)!!
+                        if (current.status == "importing" || current.transcriptionStatus == "running") {
+                            val duration = repo.audioFile(current)?.takeIf { it.isFile }?.let { work.yunju.tablelog.audio.WavFile.repair(it) } ?: 0.0
+                            repo.update(imported, snapshot = false) { it.copy(status = "interrupted", durationSeconds = duration, transcriptionStatus = "interrupted") }
+                        }
+                    } }
                     if (wake?.isHeld == true) wake?.release()
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
