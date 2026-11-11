@@ -7,6 +7,7 @@ macOS에서 회의를 녹음하고 화자별 녹취·회의록·참고 자료를
 - [버전 기록](docs/CHANGELOG.md)
 - [음성 엔진 업데이트·화자 모델 비교](docs/ENGINE_UPDATE_2.6.0.md)
 - [Android 앱 0.4.0: 녹음 중 자동 전사·모델 선택·회의 AI](Android/README.md)
+- [Android·Mac 서버 작업 인계: 이력·파일 위치·GitHub·남은 일](docs/HANDOFF_ANDROID_2026-11-11.md)
 
 ## Android 앱
 
