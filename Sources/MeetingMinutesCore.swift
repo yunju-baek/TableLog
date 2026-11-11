@@ -110,14 +110,15 @@ public struct MeetingMinutesSnapshot {
     public let speakerBindings: [Int: MeetingPerson]
     public let utterances: [MeetingUtterance]
     public let referenceAppendix: String
+    public let lectureNotes: String
     public let facts: MeetingMinutesFacts
     public init(sessionID: UUID, revision: Int, date: String, purpose: String,
                 confirmedParticipants: [MeetingPerson], speakerBindings: [Int: MeetingPerson],
-                utterances: [MeetingUtterance], facts: MeetingMinutesFacts, referenceAppendix: String = "", title: String = "", endedAt: Date? = nil) {
+                utterances: [MeetingUtterance], facts: MeetingMinutesFacts, referenceAppendix: String = "", title: String = "", endedAt: Date? = nil, lectureNotes: String = "") {
         self.sessionID = sessionID; self.revision = revision; self.date = date; self.purpose = purpose
         self.confirmedParticipants = confirmedParticipants; self.speakerBindings = speakerBindings
         self.title = title; self.endedAt = endedAt
-        self.referenceAppendix=referenceAppendix
+        self.referenceAppendix=referenceAppendix; self.lectureNotes=lectureNotes
         self.utterances = utterances; self.facts = facts
     }
 }
@@ -186,6 +187,7 @@ public enum MeetingMinutesRenderer {
         }
         result += source.substring(from: cursor)
         // Evidence, source transcripts and assistant histories stay in the app records.
+        if !snapshot.lectureNotes.isEmpty { result += "\n\n## 수강자 메모\n\n" + snapshot.lectureNotes }
         return result.trimmingCharacters(in: .whitespacesAndNewlines) + "\n"
     }
 }

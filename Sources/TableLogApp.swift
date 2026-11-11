@@ -52,7 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             CommandMenu("전사") {
                 Button("새 회의", action: model.newMeeting).keyboardShortcut("n", modifiers: [.command]).disabled(!model.canPrepareMeeting)
-                Button("녹음 시작", action: model.start).keyboardShortcut("r", modifiers: [.command]).disabled(!model.canStart || !model.meetingPrepared)
+                Button("녹음 시작", action: model.start).keyboardShortcut("r", modifiers: [.command]).disabled(!model.canStartRecording)
                 Button(model.pauseTitle, action: model.togglePause).keyboardShortcut("p", modifiers: [.command, .shift]).disabled(!model.canPause)
                 Button("종료 · 저장", action: model.stop).keyboardShortcut(".", modifiers: [.command]).disabled(!model.canStop)
                 Divider()
@@ -60,8 +60,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Button("저장 위치 열기", action: model.revealLastSave).disabled(model.lastSavedURL == nil)
             }
         }
+        Window("강의 메모·자료", id: "lecture-input") {
+            LectureInputWindow(model:model)
+        }.defaultSize(width:900,height:720)
         Settings {
             StorageSettingsView()
         }
+    }
+}
+
+struct LectureInputWindow: View {
+    @ObservedObject var model: AppModel
+    @Environment(\.dismissWindow) private var dismissWindow
+    var body: some View {
+        MeetingWorkspaceView(model:model,workspace:model.meeting,dismiss:{ dismissWindow(id:"lecture-input") },initialTab:3)
     }
 }

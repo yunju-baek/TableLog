@@ -68,7 +68,8 @@ import UniformTypeIdentifiers
         }
     }
     @Published var lastSavedURL: URL?
-    @Published var sessionTitle = "새로운 대화를 기다리고 있어요"
+    @Published private(set) var sessionTitle = "새로운 대화를 기다리고 있어요"
+    private var automaticSessionTitle: String?
     @Published var processingFile = false
     @Published private(set) var fileProgress: AudioFileProgress?
     @Published private(set) var speakerNames: [Int: String] = [:]
@@ -102,9 +103,16 @@ import UniformTypeIdentifiers
     private var cloudInputFinal = false
     private var cloudInFlightSeconds: Double = 0
     private var localSnapshot: EngineSnapshot?
+    private var qwenProcess: Process?
+    private var qwenSegmentIDs: Set<Int> = []
+    private var qwenFallbackChunks: [Int] = []
+    private var qwenCompletedChunks = 0
+    private var qwenError: String?
     private var sessionProvider: RecognitionProvider = .local
     private var stoppedByUser = false
     var usesGemini: Bool { recognitionProvider == .gemini }
+    var usesQwen: Bool { recognitionProvider == .qwen }
+    var canCancelQwen: Bool { qwenProcess != nil && !closing }
     var canChangeRecognitionProvider: Bool { !closing && !isBusy }
 
     private let worker = EngineWorker()
@@ -142,7 +150,9 @@ import UniformTypeIdentifiers
     private var filePanelRequested = false
 
     var canStart: Bool { !closing && !voice.recording && !voice.busy && (phase == .ready || phase == .completed) }
+    var canStartRecording: Bool { meetingPrepared ? canStart : canPrepareMeeting }
     var canStop: Bool { phase == .recording || phase == .paused }
+    var canEditMeetingTitle: Bool { !closing && (meetingPrepared || canStop || phase == .completed) }
     var canPause: Bool { !closing && !processingFile && canStop && !pauseTransition }
     var pauseTitle: String { phase == .paused ? "녹음 재개" : "일시정지" }
     func togglePause() { if phase == .paused { resumeRecording() } else { pauseRecording() } }
@@ -200,11 +210,8 @@ import UniformTypeIdentifiers
         materialsObservation=materials.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
         meetingObservation=meeting.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
         materials.didChange={ [weak self] in
-            guard let self, !self.loadingHistory else { return }
-            self.contextRevision=UUID();self.cancelCorrections()
-            self.meeting.materialContext=self.materials.context
-            self.syncMeetingMinutes(force:true)
-            self.persistCurrentTranscript()
+            guard let self, !self.loadingHistory, self.meeting.materialContext != self.materials.context else { return }
+            self.refreshMeetingContext()
         }
 
         voiceObservation = voice.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
@@ -247,6 +254,7 @@ import UniformTypeIdentifiers
         if CommandLine.arguments.contains("--test-gemini") { recognitionProvider = .gemini }
         if CommandLine.arguments.contains("--test-local") { recognitionProvider = .local }
         if CommandLine.arguments.contains("--test-context") { codexSettings.mode = .off; contextSettings.enabled = false }
+        if CommandLine.arguments.contains("--test-qwen") { recognitionProvider = .qwen }
         if startBackgroundServices {
             refreshCodexLogin()
             refreshDevices()
@@ -286,7 +294,7 @@ import UniformTypeIdentifiers
             switch result {
             case .success:
                 self.phase = .ready
-                self.statusMessage = "새 회의를 만들고 자료·목적·참석자를 준비하세요."
+                self.statusMessage = "바로 녹음하거나 새 회의를 준비할 수 있습니다."
                 self.runRequestedTest()
             case .failure(let error): self.fail(error)
             }
@@ -294,7 +302,8 @@ import UniformTypeIdentifiers
     }
 
     func start() {
-        guard canStart,meetingPrepared else { return }
+        guard canStartRecording else { return }
+        if !meetingPrepared && !prepareNewMeeting() { return }
         switch MicrophoneCapture.authorizationStatus {
         case .authorized: beginMicrophone()
         case .notDetermined:
@@ -315,6 +324,10 @@ import UniformTypeIdentifiers
         finishAudioRecording()
         finishDebugRecording()
         if canExport && !persistCurrentTranscript() { return false }
+        if prepareOnly && !materials.clearSelection() {
+            errorMessage = materials.error
+            return false
+        }
         assistant.resetForNewSession()
         assistantSyncKey="";assistantAppendixKey=""
         reprocessingOrigin=nil
@@ -322,12 +335,13 @@ import UniformTypeIdentifiers
         sessionProvider = recognitionProvider
         sessionEngineSettings = engineSettings
         cloudResults = []; cloudSkippedChunks = []; cloudDrafts = [:]; cloudSegmentIDs = []
+        qwenSegmentIDs = []; qwenFallbackChunks = []; qwenCompletedChunks = 0; qwenError = nil
         localSnapshot = nil; cloudFailure = nil; cloudInputFinal = false; stoppedByUser = false
         session = UUID(); reconcilingVoiceNames = true
         voice.reset(session: session); voiceNameAssignments = VoiceNameAssignments()
         reconcilingVoiceNames = false; startedAt = Date(); endedAt = nil; pauseTransition = false; sourceName = source
         meeting.begin(id: session)
-        sessionTitle = title; segments = []; liveText = ""; audioSeconds = 0
+        sessionTitle = title; automaticSessionTitle = nil; segments = []; liveText = ""; audioSeconds = 0
         speakerNames = [:]; speakerIDs = []
         transcriptEdits = []; manualTranscriptEdits = []; manualEditRevision=UUID(); nextManualPartID = -1; transcriptUndo = []; transcriptUndoCount = 0
         corrections = [:]; correctionAttempts = [:]; observations = [:]
@@ -362,9 +376,14 @@ import UniformTypeIdentifiers
 
     private func beginMicrophone() {
         guard !closing else { return }
-        let formatter = DateFormatter(); formatter.dateFormat = "M월 d일 HH:mm 대화"
         guard meetingPrepared else { return }
-        startedAt=Date();if sessionTitle == "새 회의" { sessionTitle=formatter.string(from:Date()) }
+        startedAt = Date()
+        if sessionTitle == "새 회의" {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "M월 d일 HH:mm 대화"
+            sessionTitle = formatter.string(from: startedAt)
+            automaticSessionTitle = sessionTitle
+        }
         guard beginSessionAudio() else { return }
         meetingPrepared=false
         processingFile = false; phase = .loading; statusMessage = "마이크를 연결하고 있습니다."
@@ -427,7 +446,7 @@ import UniformTypeIdentifiers
         catch { stopAfterFailure(error) }
     }
 
-    private func apply(_ snapshot: EngineSnapshot) {
+    private func apply(_ snapshot: EngineSnapshot, qwen: HybridTranscript.Projection? = nil) {
         localSnapshot = snapshot
         debugRecorder?.recordLocal(snapshot: snapshot)
         // The model can emit a padded final token beyond the captured audio.
@@ -438,7 +457,12 @@ import UniformTypeIdentifiers
             return TranscriptSegment(id: segment.id, speaker: segment.speaker,
                 startTime: start, endTime: end, text: segment.text)
         }
-        if sessionProvider == .gemini, !cloudResults.isEmpty {
+        if let qwen {
+            segments = qwen.segments
+            qwenSegmentIDs = qwen.cloudIDs
+            cloudDrafts = qwen.localDrafts
+            liveText = segments.map(\.text).joined(separator: " ")
+        } else if sessionProvider == .gemini, !cloudResults.isEmpty {
             let projection = HybridTranscript.project(local: snapshot, results: cloudResults)
             segments = projection.segments
             cloudSegmentIDs = projection.cloudIDs
@@ -557,14 +581,14 @@ import UniformTypeIdentifiers
         }, completion: { [weak self] result in
             guard let self, self.session == id else { return }
             switch result {
-            case .success(let (snapshot, stopped)): self.complete(snapshot, stopped: stopped)
+            case .success(let (snapshot, stopped)): self.complete(snapshot, stopped: stopped, inputURL: url)
             case .failure(let error): self.fail(error, preserve: true)
             }
         })
         if CommandLine.arguments.contains("--test-cancel-immediately") { stop() }
     }
 
-    private func complete(_ snapshot: EngineSnapshot, stopped: Bool) {
+    private func complete(_ snapshot: EngineSnapshot, stopped: Bool, inputURL: URL? = nil) {
         apply(snapshot); inputLevel = 0; queuedSeconds = 0
         if endedAt == nil { endedAt = processingFile ? startedAt.addingTimeInterval(audioSeconds) : Date() }
         finishAudioRecording()
@@ -578,7 +602,94 @@ import UniformTypeIdentifiers
             persistCurrentTranscript()
             return
         }
+        if sessionProvider == .qwen, !stopped, !closing, pendingFailure == nil, snapshot.audioSeconds > 0,
+           let audio = inputURL ?? savedAudioURL {
+            finishWithQwen(audio: audio, snapshot: snapshot)
+            return
+        }
         finalizeSession()
+    }
+
+    private func finishWithQwen(audio: URL, snapshot: EngineSnapshot) {
+        phase = .finishing
+        statusMessage = "Qwen으로 녹음 본문을 다시 전사하고 있습니다."
+        persistCurrentTranscript()
+        let id = session
+        do {
+            qwenProcess = try QwenTranscriber.start(audio: audio, context: qwenRecognitionContext) { [weak self] result in
+                guard let self, self.session == id, self.qwenProcess != nil, !self.closing else { return }
+                self.qwenProcess = nil
+                do {
+                    guard self.transcriptEdits.isEmpty, self.manualTranscriptEdits.isEmpty else {
+                        throw AppFailure(message: "직접 수정한 내용과 함께 NVIDIA 초안을 저장합니다.")
+                    }
+                    try self.applyQwen(result.get(), to: snapshot)
+                } catch { self.recordQwenError(error.localizedDescription) }
+                self.finalizeSession()
+            }
+        } catch {
+            recordQwenError(error.localizedDescription)
+            finalizeSession()
+        }
+    }
+
+    private func applyQwen(_ chunks: [HybridTranscript.TimedChunk], to snapshot: EngineSnapshot) throws {
+        var usable: [HybridTranscript.TimedChunk] = []
+        var fallback: [Int] = []
+        var previousEnd = 0.0
+        for (index, chunk) in chunks.enumerated() {
+            // Imported audio and the native resampler can differ by an AAC frame.
+            guard chunk.id == index, chunk.start.isFinite, chunk.end.isFinite,
+                  abs(chunk.start - previousEnd) <= 0.001, chunk.end > chunk.start,
+                  chunk.end <= snapshot.audioSeconds + 0.15 else {
+                throw AppFailure(message: "Qwen 발언 시각과 녹음 길이를 확인해 주세요.")
+            }
+            previousEnd = chunk.end
+            let end = min(chunk.end, snapshot.audioSeconds)
+            guard end > chunk.start else { continue }
+            if chunk.truncated == true || chunk.words.isEmpty {
+                if chunk.truncated == true || snapshot.words.contains(where: { $0.start < end && $0.end > chunk.start }) {
+                    fallback.append(chunk.id)
+                }
+                continue
+            }
+            let duration = end - chunk.start
+            var previousWordStart = 0.0
+            let validWords = chunk.words.allSatisfy { word in
+                defer { previousWordStart = word.start }
+                return !word.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && word.start >= previousWordStart && word.end >= word.start
+                    && word.end <= chunk.end - chunk.start + 0.000_001
+            }
+            guard validWords else { fallback.append(chunk.id); continue }
+            let words = chunk.words.map {
+                GeminiWord(text: $0.text, start: min($0.start, duration), end: min($0.end, duration))
+            }
+            usable.append(.init(id: chunk.id, start: chunk.start, end: end, text: chunk.text, words: words))
+        }
+        guard abs(previousEnd - snapshot.audioSeconds) <= 0.15 else {
+            throw AppFailure(message: "Qwen 전사에서 일부 음성 구간의 결과를 확인해 주세요.")
+        }
+        let projection = HybridTranscript.project(local: snapshot, chunks: usable)
+        guard !projection.cloudIDs.isEmpty || (snapshot.words.isEmpty && fallback.isEmpty) else {
+            throw AppFailure(message: "Qwen 발언과 시각을 확인할 수 있어야 결과를 적용할 수 있습니다.")
+        }
+        qwenFallbackChunks = fallback
+        qwenCompletedChunks = usable.count
+        apply(snapshot, qwen: projection)
+    }
+
+    private func recordQwenError(_ message: String) {
+        qwenError = message
+        debugRecorder?.recordFailure(message: message, detailsJSON: "{\"source\":\"qwen\"}")
+    }
+
+    func cancelQwen() {
+        guard let process = qwenProcess else { return }
+        qwenProcess = nil
+        if process.isRunning { process.terminate() }
+        recordQwenError("Qwen 전사를 중지했습니다.")
+        if !closing { finalizeSession() }
     }
 
     private func finalizeSession() {
@@ -592,9 +703,16 @@ import UniformTypeIdentifiers
                 statusMessage = "현재까지의 발언을 저장했습니다."
             } else {
                 phase = .completed
-                statusMessage = cloudFailure != nil ? "로컬 전사로 보완해 저장했습니다 · Gemini 연결 상태를 확인해 주세요." :
+                if let qwenError {
+                    statusMessage = "NVIDIA 초안을 저장했습니다. " + qwenError
+                } else if sessionProvider == .qwen, qwenCompletedChunks > 0 {
+                    statusMessage = qwenFallbackChunks.isEmpty ? "Qwen 전사와 화자 정보를 저장했습니다." :
+                        "Qwen 전사와 NVIDIA 초안 \(qwenFallbackChunks.count)개 구간을 저장했습니다."
+                } else {
+                    statusMessage = cloudFailure != nil ? "로컬 전사로 보완해 저장했습니다 · Gemini 연결 상태를 확인해 주세요." :
                     (!cloudSkippedChunks.isEmpty ? "Gemini 전사와 로컬로 보존한 \(cloudSkippedChunks.count)개 구간을 함께 저장했습니다." :
                     (stoppedByUser ? "중지한 지점까지 저장했습니다." : "전사가 완료되었습니다 · JSON 자동 저장 완료"))
+                }
             }
             finishTestWhenCorrectionsSettle()
         } catch { fail(error, preserve: false) }
@@ -636,7 +754,8 @@ import UniformTypeIdentifiers
                 correction_seconds: corrections[$0.id]?.elapsedSeconds,
                 correction_status: corrections[$0.id].map { $0.accepted ? ($0.originalText == $0.correctedText ? "unchanged" : "corrected") : "original_retained" },
                 correction_note: corrections[$0.id]?.rejectionReason,
-                recognition_provider: manualProjection.lockedIDs.contains($0.id) ? "manual" : isReprocessing ? "saved-transcript" : cloudSegmentIDs.contains($0.id) ? "gemini-3.5-transcribe" : "nvidia-local",
+                recognition_provider: manualProjection.lockedIDs.contains($0.id) ? "manual" : isReprocessing ? "saved-transcript" :
+                    qwenSegmentIDs.contains($0.id) ? QwenTranscriber.modelName : cloudSegmentIDs.contains($0.id) ? GeminiTranscriber.modelName : "nvidia-local",
                 local_draft: cloudDrafts[$0.id], proposed_text: corrections[$0.id]?.proposedText,
                 correction_provider: corrections[$0.id]?.provider, correction_model: corrections[$0.id]?.model, reference_ids: corrections[$0.id]?.referenceIDs, acoustic_speaker: manualProjection.acousticSpeakers[$0.id] ?? $0.speaker) })
         value.transcript_edits = transcriptEdits
@@ -657,14 +776,15 @@ import UniformTypeIdentifiers
             review_segment_ids: corrections.filter { $0.value.proposedText != nil && !$0.value.accepted }.keys.sorted())
         value.codex_corrections = codexRecords
         value.recognition = SavedRecognition(provider: isReprocessing ? "history" : sessionProvider.rawValue,
-            model: isReprocessing ? "saved-transcript" : sessionProvider == .gemini ? GeminiTranscriber.modelName : "nemotron-3.5-asr-streaming-0.6b",
+            model: isReprocessing ? "saved-transcript" : sessionProvider.modelName,
             diarization: isReprocessing ? "saved-speaker-assignments" : "NVIDIA Nemotron-3-Diarization / local Metal",
             status: isReprocessing ? "restored" : recognitionDocumentStatus,
-            error: cloudFailure ?? (cloudSkippedChunks.isEmpty ? nil : "\(cloudSkippedChunks.count)개 구간은 응답 검증 기록과 함께 로컬 결과로 보존했습니다."),
-            completed_chunks: cloudResults.count,
+            error: sessionProvider == .qwen ? qwenError :
+                cloudFailure ?? (cloudSkippedChunks.isEmpty ? nil : "\(cloudSkippedChunks.count)개 구간은 응답 검증 기록과 함께 로컬 결과로 보존했습니다."),
+            completed_chunks: sessionProvider == .qwen ? qwenCompletedChunks : cloudResults.count,
             request_seconds: cloudResults.map { $0.transcript.elapsedSeconds },
-            local_fallback_chunks: cloudSkippedChunks)
-        if sessionProvider == .gemini {
+            local_fallback_chunks: sessionProvider == .qwen ? qwenFallbackChunks : cloudSkippedChunks)
+        if sessionProvider == .gemini || (sessionProvider == .qwen && !qwenSegmentIDs.isEmpty) {
             value.local_draft_text = localSnapshot?.text
             value.local_draft_segments = localSnapshot?.segments
         }
@@ -741,6 +861,7 @@ import UniformTypeIdentifiers
         cancelSpeakerReview(); stopReviewAudio()
         if cloudTask != nil { cloudFailure = "앱 종료 · 로컬 초안과 수신한 Gemini 결과 보존" }
         cancelCloud()
+        cancelQwen()
         cancelCorrections()
         if !canStop && phase != .finishing { finishAudioRecording(); finishDebugRecording() }
         persistCurrentTranscript()
@@ -798,9 +919,12 @@ import UniformTypeIdentifiers
             return providers.isEmpty ? "저장된 전사" : "저장된 전사 · " + (providers.contains(where: { AITextProvider(rawValue:$0) != nil }) ? "AI" : "로컬") + " 재교정"
         }
         let cloudCount = turn.segments.filter { cloudSegmentIDs.contains($0.id) }.count
+        let qwenCount = turn.segments.filter { qwenSegmentIDs.contains($0.id) }.count
         if turn.segments.contains(where: { AITextProvider(rawValue: corrections[$0.id]?.provider ?? "") != nil && corrections[$0.id]?.accepted == true }) {
+            if qwenCount > 0 { return "Qwen 전사 · AI 교정" }
             return cloudCount > 0 ? "Gemini + AI 교정" : "로컬 전사 + AI 교정"
         }
+        if qwenCount > 0 { return qwenCount == turn.segments.count ? "Qwen 전사" : "Qwen 전사 · NVIDIA 초안 포함" }
         if cloudCount == turn.segments.count { return "Gemini 전사" }
         if cloudCount > 0 { return "Gemini 전사 · 이어지는 로컬 초안" }
         return sessionProvider == .gemini ? "로컬 초안 · Gemini 대기" : "로컬 전사"
@@ -876,7 +1000,7 @@ import UniformTypeIdentifiers
     }
 
     @discardableResult private func persistCurrentTranscript() -> Bool {
-        guard canExport else { return true }
+        guard canExport || lastSavedURL != nil else { return true }
         syncMeetingMinutes(force: true)
         do {
             let status = canStop || phase == .finishing ? "in_progress" : finalStatus
@@ -891,7 +1015,7 @@ import UniformTypeIdentifiers
     }
 
     private func scheduleCorrection() {
-        guard !speakerReviewRunning, !closing else { return }
+        guard !speakerReviewRunning, !closing, sessionProvider != .qwen || !isBusy else { return }
         if codexSettings.mode == .codex { scheduleCodexCorrection(); return }
         updateCorrectionStatus("문맥 교정 꺼짐 · 음성 인식 원문 표시")
         finishTestWhenCorrectionsSettle()
@@ -909,7 +1033,7 @@ import UniformTypeIdentifiers
         guard (sessionProvider == .gemini && codexSettings.mode != .codex) || !contextSettings.enabled || correctionFailure != nil ||
                 (correctionTask == nil && remainingCorrections.isEmpty) else { return }
         persistCurrentTranscript()
-        finishRequestedTest(success: correctionFailure == nil && cloudFailure == nil && cloudSkippedChunks.isEmpty)
+        finishRequestedTest(success: correctionFailure == nil && cloudFailure == nil && cloudSkippedChunks.isEmpty && qwenError == nil)
     }
 
     private func shutdownEngines(_ completion: @escaping () -> Void) {
@@ -930,6 +1054,7 @@ import UniformTypeIdentifiers
     @discardableResult func updateCloudSettings(provider: RecognitionProvider, apiKey: String) -> Bool {
         guard canChangeRecognitionProvider else { return false }
         do {
+            if provider == .qwen { try QwenTranscriber.requireInstallation() }
             if !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { try GeminiCredentials.save(apiKey) }
             hasGeminiKey = GeminiCredentials.hasKey
             if provider == .gemini && !hasGeminiKey { throw GeminiTranscriberError.missingKey }
@@ -1048,6 +1173,11 @@ import UniformTypeIdentifiers
 
     private var recognitionDocumentStatus: String {
         if sessionProvider == .local { return "local" }
+        if sessionProvider == .qwen {
+            if qwenError != nil { return "local_fallback" }
+            if qwenCompletedChunks > 0 { return qwenFallbackChunks.isEmpty ? "completed" : "completed_with_local_fallback" }
+            return phase == .completed || phase == .failed ? "local" : "pending"
+        }
         if cloudFailure != nil { return "local_fallback" }
         let completed = cloudInputFinal && cloudTask == nil
         if cloudSkippedChunks.isEmpty { return completed ? "completed" : "pending" }
@@ -1279,7 +1409,7 @@ extension AppModel {
         }
         correctionRun = run; correctingSegmentIDs = Set(inputs.map(\.id))
         correctionStatus = "\(settings.provider.title) 교정 중 · \(settings.model) · \(inputs.count)개 발언"
-        let topic = contextSettings.topic, terms = referenceTerms
+        let topic = meetingCorrectionTopic, terms = referenceTerms
         let references=materials.context.excerpts(query:inputs.map(\.text).joined(separator:" "),limit:5,characters:5000)
         correctionTask = Task { [weak self] in
             let started = Date()
@@ -1522,7 +1652,7 @@ extension AppModel {
                 }
             }
         }
-        guard !segments.isEmpty || meetingPrepared else { meeting.updateRecovered(settings: codexSettings); return }
+        guard !segments.isEmpty || meetingPrepared || canStop || lastSavedURL != nil else { meeting.updateRecovered(settings: codexSettings); return }
         meeting.receive(id: session, title: sessionTitle, date: startedAt,
             segments: visibleSegments.map { MeetingUtterance(id: $0.id, speaker: effectiveSpeaker($0), start: $0.startTime, end: $0.endTime, text: displayedText(for: $0)) },
             names: speakerNames, ended: closing || phase == .completed || phase == .failed,
@@ -1672,11 +1802,14 @@ extension AppModel {
 }
 
 extension AppModel {
-    var canPrepareMeeting: Bool { canStart && !materials.busy }
+    var canPrepareMeeting: Bool { canStart && !materials.busy && !materials.isChoosingSource }
     var isReprocessing: Bool { reprocessingOrigin != nil }
     var canGenerateMinutes: Bool { !closing && !isBusy && !meeting.busy && meeting.canGenerate }
     var canRegenerateHistoryMinutes: Bool { isReprocessing && canGenerateMinutes }
     var displayStatusMessage: String {
+        if sessionProvider == .qwen, !isReprocessing, qwenError != nil || !qwenFallbackChunks.isEmpty {
+            return statusMessage
+        }
         if !isBusy && meeting.sessionID != nil && !segments.isEmpty {
             return meeting.displayStatus
         }
@@ -1758,14 +1891,41 @@ extension AppModel {
         var seen=Set<String>()
         return Array((contextSettings.phrases+materials.context.terms).filter { seen.insert($0).inserted }.prefix(64))
     }
-    func newMeeting() {
-        guard canPrepareMeeting else { return }
-        guard resetSession(title:"새 회의",source:"microphone",prepareOnly:true) else { return }
-        materials.clearSelection()
+    private var meetingTopicParts: [String] {
+        let title = sessionTitle == automaticSessionTitle || sessionTitle == "새 회의" ? "" : sessionTitle
+        var seen = Set<String>()
+        return [title, meeting.purpose, contextSettings.topic]
+            .map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(600)) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+    var meetingCorrectionTopic: String { String(meetingTopicParts.joined(separator: "\n").prefix(1200)) }
+    var qwenRecognitionContext: String {
+        let terms = String(referenceTerms.joined(separator: ", ").prefix(1200))
+        return (meetingTopicParts.map { String($0.prefix(200)) } + [terms])
+            .filter { !$0.isEmpty }.joined(separator: "\n")
+    }
+    func setMeetingTitle(_ title: String) {
+        guard canEditMeetingTitle else { return }
+        let value = String(title.split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(160))
+        guard !value.isEmpty, value != sessionTitle else { return }
+        sessionTitle = value
+        refreshMeetingContext()
+    }
+    private func refreshMeetingContext() {
+        cancelCorrections()
+        if canExport || lastSavedURL != nil { persistCurrentTranscript() }
+        else { syncMeetingMinutes(force: true) }
+        scheduleCorrection()
+    }
+    func newMeeting() { _ = prepareNewMeeting() }
+    private func prepareNewMeeting() -> Bool {
+        guard canPrepareMeeting,
+              resetSession(title: "새 회의", source: "microphone", prepareOnly: true) else { return false }
         materials.resumeFolderWatching(provider: meeting.provider, settings: codexSettings)
         meeting.purpose=""
-        statusMessage="회의 준비 · 자료·목적·참석자를 설정한 뒤 녹음을 시작하세요."
+        statusMessage="회의 준비 · 제목과 자료는 녹음 중에도 추가할 수 있습니다."
         syncMeetingMinutes(force:true)
+        return true
     }
 }
 

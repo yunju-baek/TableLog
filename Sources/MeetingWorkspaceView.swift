@@ -12,19 +12,40 @@ struct MeetingWorkspaceView: View {
     var initialTab = 0
     @State private var tab = 0
     @State private var manualName = ""
+    @State private var lectureNote = ""
+    @State private var titleDraft = ""
+    @State private var titleSessionID: UUID?
+
+    private func saveTitle() {
+        guard titleSessionID == model.editingSessionID else { return }
+        model.setMeetingTitle(titleDraft)
+        titleDraft = model.sessionTitle
+    }
+
     var body: some View {
         VStack(alignment:.leading,spacing:14) {
             HStack {
-                Label(model.meetingPrepared ? "새 회의 준비" : "회의자료 · 회의록",systemImage:"doc.text").font(.title2.bold())
+                Label(model.meetingPrepared ? "새 회의 준비" : "회의 설정 · 자료 · 회의록",systemImage:"doc.text").font(.title2.bold())
                 Spacer()
-                Button("닫기",action:dismiss).keyboardShortcut(.cancelAction)
+                Button("닫기") { saveTitle(); dismiss() }.keyboardShortcut(.cancelAction)
+            }
+            if model.canEditMeetingTitle {
+                HStack {
+                    Text("회의 제목").font(.subheadline.weight(.semibold))
+                    TextField("회의 제목", text: $titleDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(saveTitle)
+                    Button("제목 저장", action: saveTitle)
+                        .disabled(titleDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || titleDraft == model.sessionTitle)
+                }
             }
             Picker("화면",selection:$tab) {
-                Text("회의 설정·참석자").tag(0)
-                Text("회의자료·맥락").tag(2)
+                Text("설정·참석자").tag(0)
+                Text("자료·맥락").tag(2)
+                if workspace.mode == .lecture { Text("수강자 메모").tag(3) }
                 Text("회의록 미리보기").tag(1)
             }.pickerStyle(.segmented)
-            if tab==0 { settings } else if tab==2 { MeetingMaterialsView(materials:model.materials,model:model) } else {
+            if tab==0 { settings } else if tab==2 { MeetingMaterialsView(materials:model.materials,model:model) } else if tab==3 { lectureNotes } else {
                 if workspace.isShowingEditedDraft {
                     Label("채팅 편집본 · 자동 생성본은 저장 폴더에서 확인할 수 있습니다.", systemImage: "pencil.line")
                         .font(.caption).foregroundStyle(AppTheme.violet)
@@ -51,17 +72,19 @@ struct MeetingWorkspaceView: View {
                 if workspace.busy { ProgressView().controlSize(.small) }
                 Text(workspace.displayStatus).font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                if model.meetingPrepared { Button("준비 완료 · 녹음 시작") { dismiss();model.start() }.disabled(!model.canStart) }
+                if model.meetingPrepared { Button("녹음 시작") { saveTitle(); dismiss(); model.start() }.disabled(!model.canStartRecording) }
                 Button("저장 폴더",action:workspace.showFolder)
                 Button("MD 열기",action:workspace.openFile).disabled(workspace.lastURL==nil)
-                Button(workspace.lastURL == nil ? "회의록 생성" : "회의록 다시 생성") { model.syncMeetingMinutes(force:true);workspace.generateNow() }
+                Button(workspace.lastURL == nil ? "\(workspace.mode.title) 생성" : "\(workspace.mode.title) 다시 생성") { model.syncMeetingMinutes(force:true);workspace.generateNow() }
                     .buttonStyle(.borderedProminent).disabled(!workspace.canGenerate || workspace.busy)
             }
             if let error=workspace.error { Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled) }
         }.padding(22).frame(width:900,height:720)
             .background(AppTheme.paper).tint(AppTheme.violet)
-            .onAppear { tab=initialTab }
-            .onDisappear { model.syncMeetingMinutes(force:true) }
+            .onAppear { tab=initialTab; titleDraft=model.sessionTitle; titleSessionID=model.editingSessionID }
+            .onChange(of: model.editingSessionID) { _, id in titleSessionID=id; titleDraft=model.sessionTitle }
+            .onChange(of: model.sessionTitle) { old, new in if titleDraft == old { titleDraft=new } }
+            .onDisappear { saveTitle(); model.syncMeetingMinutes(force:true) }
             .sheet(item:$editor) { template in
                 MeetingTemplateEditor(template:template,onSave:{ workspace.saveTemplate($0) },onClose:{ editor=nil })
             }
@@ -72,10 +95,38 @@ struct MeetingWorkspaceView: View {
                 },onClose:{contactPicker=false})
             }
     }
+    private var lectureNotes: some View {
+        VStack(alignment:.leading, spacing:12) {
+            Text("수강자 메모").font(.headline)
+            Text("추가 시점의 녹음 경과 시간을 함께 저장합니다. 녹음 전 메모는 00:00으로 표시합니다.").font(.caption).foregroundStyle(.secondary)
+            TextEditor(text:$lectureNote).frame(height:100).overlay(RoundedRectangle(cornerRadius:5).stroke(.gray.opacity(0.3)))
+            Button("메모 추가") {
+                let value=lectureNote.trimmingCharacters(in:.whitespacesAndNewlines)
+                guard !value.isEmpty else { return }
+                workspace.lectureNotes.append(LectureNote(seconds:model.audioSeconds,text:value))
+                lectureNote="";model.syncMeetingMinutes(force:true)
+            }.disabled(lectureNote.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
+            List {
+                ForEach(workspace.lectureNotes) { note in
+                    HStack(alignment:.top) {
+                        Text(MeetingMinutesRenderer.time(note.seconds)).monospacedDigit()
+                        Text(note.text).frame(maxWidth:.infinity,alignment:.leading).textSelection(.enabled)
+                        Button("삭제") { workspace.lectureNotes.removeAll { $0.id == note.id };model.syncMeetingMinutes(force:true) }
+                    }
+                }
+            }
+        }
+    }
     private var settings: some View {
         ScrollView {
             VStack(alignment:.leading,spacing:17) {
-                GroupBox("회의 템플릿") {
+                Picker("기록 모드", selection:$workspace.mode) {
+                    ForEach(RecordMode.allCases, id:\.self) { Text($0.title).tag($0) }
+                }.pickerStyle(.segmented).onChange(of:workspace.mode) { _, _ in model.syncMeetingMinutes(force:true) }
+                if workspace.mode == .lecture {
+                    Text("강의 흐름에 따라 주제를 나누어 정리합니다. 자료·맥락에서 슬라이드 이미지와 문서를 추가하고 수강자 메모를 별도로 기록할 수 있습니다.").font(.callout).foregroundStyle(.secondary)
+                }
+                GroupBox("기록 설정") {
                     VStack(alignment:.leading,spacing:10) {
                         HStack {
                             Picker("템플릿",selection:$workspace.selectedID) {
@@ -98,7 +149,6 @@ struct MeetingWorkspaceView: View {
                         if !workspace.selectedTemplate.similarTopics.isEmpty {
                             Text("관련 주제: " + workspace.selectedTemplate.similarTopics.joined(separator:", ")).font(.caption).foregroundStyle(.secondary)
                         }
-                        TextField("회의 이름",text:$model.sessionTitle).textFieldStyle(.roundedBorder)
                         TextField("이번 회의 목적",text:$workspace.purpose).textFieldStyle(.roundedBorder)
                     }.padding(7)
                 }

@@ -10,6 +10,15 @@ struct CloudResult {
 /// Projects cloud words onto the current local dominant-speaker timeline.
 /// Rebuilding on each local snapshot also incorporates late speaker revisions.
 enum HybridTranscript {
+    struct TimedChunk: Decodable {
+        let id: Int
+        let start: Double
+        let end: Double
+        let text: String
+        let words: [GeminiWord]
+        var truncated: Bool? = nil
+    }
+
     struct Projection {
         var segments: [TranscriptSegment]
         var cloudIDs: Set<Int>
@@ -17,22 +26,28 @@ enum HybridTranscript {
     }
 
     static func project(local: EngineSnapshot, results: [CloudResult]) -> Projection {
-        guard !results.isEmpty else { return Projection(segments: local.segments, cloudIDs: [], localDrafts: [:]) }
+        project(local: local, chunks: results.map {
+            TimedChunk(id: $0.id, start: $0.start, end: $0.end,
+                       text: $0.transcript.text, words: $0.transcript.words)
+        })
+    }
+
+    static func project(local: EngineSnapshot, chunks: [TimedChunk]) -> Projection {
         // The parser owns timestamp quantization tolerance. This epsilon only
         // compensates for floating-point subtraction of absolute chunk times.
         let clockEpsilon = 0.000_000_001
         // The native JSON serializes audio_seconds to three decimal places.
         let snapshotRoundingTolerance = 0.0005 + clockEpsilon
-        let readyResults = results.enumerated().filter { _, result in
+        let readyResults = chunks.enumerated().filter { _, result in
             guard local.audioSeconds.isFinite, result.start.isFinite, result.end.isFinite,
                   result.start >= 0, result.end > result.start,
                   result.end <= local.audioSeconds + snapshotRoundingTolerance else { return false }
-            let textIsEmpty = result.transcript.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            if result.transcript.words.isEmpty { return textIsEmpty }
+            let textIsEmpty = result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if result.words.isEmpty { return textIsEmpty }
             guard !textIsEmpty else { return false }
             let duration = result.end - result.start
             var previousStart = -Double.infinity
-            for word in result.transcript.words {
+            for word in result.words {
                 guard !word.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                       word.start.isFinite, word.end.isFinite,
                       word.start >= 0, word.end >= word.start,
@@ -94,7 +109,7 @@ enum HybridTranscript {
             return !readyResults.contains { middle >= $0.start && middle < $0.end }
         }.enumerated().map { Item(word: $0.element, chunk: nil, ordinal: $0.offset) }
         for result in readyResults {
-            for word in result.transcript.words {
+            for word in result.words {
                 let start = min(local.audioSeconds, result.end, result.start + word.start)
                 let end = min(local.audioSeconds, result.end, result.start + word.end)
                 items.append(Item(word: TranscriptWord(text: word.text, start: start, end: end,

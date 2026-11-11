@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var model: AppModel
+    @Environment(\.openWindow) private var openWindow
+    @State private var lectureTranscript = false
     private struct VoiceLearningRequest: Identifiable { let id = UUID(); let speaker: Int? }
     @State private var voiceLearningRequest: VoiceLearningRequest?
     @State private var textEditRequest: TranscriptEditRequest?
@@ -136,6 +138,16 @@ struct ContentView: View {
                             }
                             .buttonStyle(.plain)
                             .keyboardShortcut(".", modifiers: [.command])
+                        } else if model.canCancelQwen {
+                            Button(action: model.cancelQwen) {
+                                Label("Qwen 중지 · 초안 저장", systemImage: "stop.fill")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+                                    .foregroundStyle(AppTheme.rose)
+                                    .background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 11))
+                            }
+                            .buttonStyle(.plain)
+                            .keyboardShortcut(".", modifiers: [.command])
                         } else {
                             Button(action: model.start) {
                                 Label(model.phase == .finishing ? "저장하고 있어요" : "녹음 시작", systemImage: "mic.fill")
@@ -146,8 +158,8 @@ struct ContentView: View {
                                     .background(violet, in: RoundedRectangle(cornerRadius: 11))
                             }
                             .buttonStyle(.plain)
-                            .disabled(!model.canStart || !model.meetingPrepared)
-                            .opacity(model.canStart && model.meetingPrepared ? 1 : 0.42)
+                            .disabled(!model.canStartRecording)
+                            .opacity(model.canStartRecording ? 1 : 0.42)
                             .keyboardShortcut("r", modifiers: [.command])
                         }
                         Button(action: model.importAudio) {
@@ -180,7 +192,7 @@ struct ContentView: View {
                             .background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 10))
                     }.buttonStyle(.plain)
                     Button { meetingTab=2;showingMeeting=true } label: {
-                        Label("회의자료 추가 · \(model.materials.context.documents.count)개",systemImage:"doc.badge.plus").font(.system(size:12,weight:.medium))
+                        Label("자료·맥락 · \(model.materials.context.documents.count)개",systemImage:"doc.on.doc").font(.system(size:12,weight:.medium))
                     }.buttonStyle(.plain)
 
                     Rectangle().fill(AppTheme.violet.opacity(0.12)).frame(height: 1)
@@ -342,10 +354,13 @@ struct ContentView: View {
                     Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "테이블로그")
                         .font(.system(size: 9)).foregroundStyle(AppTheme.muted)
                 }.font(.system(size: 11)).padding(.bottom, 5)
-                Label(model.usesGemini ? "Gemini 전사 · Mac 화자 분리" : (model.codexSettings.mode == .codex ? "로컬 전사 · \(model.codexSettings.provider.title) 교정" : "로컬 음성 인식"),
+                Label(model.usesQwen ? "Qwen 재전사 · Mac 화자 분리" :
+                      model.usesGemini ? "Gemini 전사 · Mac 화자 분리" :
+                      (model.codexSettings.mode == .codex ? "로컬 전사 · \(model.codexSettings.provider.title) 교정" : "로컬 음성 인식"),
                       systemImage: model.usesGemini ? "cloud" : "desktopcomputer")
                     .font(.system(size: 11, weight: .medium))
-                Text(model.usesGemini ? "Google Gemini + NVIDIA Nemotron" : "NVIDIA Nemotron · 한국어")
+                Text(model.usesQwen ? "Qwen3-ASR 1.7B + NVIDIA Nemotron" :
+                     model.usesGemini ? "Google Gemini + NVIDIA Nemotron" : "NVIDIA Nemotron · 한국어")
                     .font(.system(size: 10))
                     .foregroundStyle(AppTheme.muted)
             }
@@ -450,7 +465,7 @@ struct ContentView: View {
                         .background(AppTheme.lavender, in: Capsule())
                 }
                 .buttonStyle(.plain)
-                .help("로컬 또는 Gemini 음성 인식을 선택하고 API 키를 설정합니다.")
+                .help("NVIDIA, Qwen, Gemini 중 음성 인식 엔진을 선택합니다.")
                 .accessibilityLabel("인식 엔진 설정")
                 .accessibilityValue(model.recognitionProvider.title)
                 .popover(isPresented: $showingCloudSettings, arrowEdge: .top) {
@@ -569,16 +584,37 @@ struct ContentView: View {
 
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(model.sessionTitle)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(ink)
-                        .lineLimit(1)
-                        .help(model.sessionTitle)
+                    HStack(spacing: 8) {
+                        Text(model.sessionTitle)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(ink)
+                            .lineLimit(1)
+                            .help(model.sessionTitle)
+                        if model.canEditMeetingTitle {
+                            Button {
+                                meetingTab = 0
+                                showingMeeting = true
+                            } label: {
+                                Image(systemName: "pencil").foregroundStyle(violet)
+                            }
+                            .buttonStyle(.plain)
+                            .help("회의 제목 편집")
+                            .accessibilityLabel("회의 제목 편집")
+                        }
+                    }
                     Text(model.segments.isEmpty ? "대화 기록" : "\(model.conversationTurns.count)개의 발언")
                         .font(.system(size: 11))
                         .foregroundStyle(muted)
                 }
                 Spacer(minLength: 12)
+                if model.canStop && !model.processingFile {
+                    Button {
+                        model.materials.pickFiles(provider: model.meeting.provider, settings: model.codexSettings)
+                    } label: {
+                        Label("자료 첨부", systemImage: "paperclip")
+                    }
+                    .help("녹음을 이어가면서 이번 회의에 자료를 추가합니다.")
+                }
                 Button {
                     model.copyTranscript()
                     copied = true
@@ -608,17 +644,24 @@ struct ContentView: View {
             Rectangle().fill(ink.opacity(0.08)).frame(height: 1)
                 .padding(.horizontal, 32)
 
-            if model.segments.isEmpty && model.liveText.isEmpty {
+            if model.meeting.mode == .lecture && !lectureTranscript {
+                LectureDashboard(assistant:model.assistant, openInput:{ openWindow(id:"lecture-input") }, showTranscript:{ lectureTranscript=true })
+            } else if model.segments.isEmpty && model.liveText.isEmpty {
                 emptyState
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 transcript
             }
 
+            if model.meeting.mode == .lecture && lectureTranscript {
+                Button("강의 흐름으로 돌아가기") { lectureTranscript=false }.padding(.horizontal,32).padding(.top,8)
+            }
             HStack(spacing: 8) {
                 Image(systemName: "sparkle")
                     .foregroundStyle(AppTheme.rose)
-                Text(model.codexSettings.mode == .codex ? "초안에 AI 교정이 이어서 반영됩니다. 차이 보기에서 변경을 확인하세요." : (model.usesGemini ? "로컬 초안에 Gemini 전사가 이어서 반영됩니다." : "화자와 문장은 녹음 중 보정됩니다."))
+                Text(model.usesQwen ? "녹음이 끝나면 Qwen 전사가 반영됩니다." :
+                     model.codexSettings.mode == .codex ? "초안에 AI 교정이 이어서 반영됩니다. 차이 보기에서 변경을 확인하세요." :
+                     (model.usesGemini ? "로컬 초안에 Gemini 전사가 이어서 반영됩니다." : "화자와 문장은 녹음 중 보정됩니다."))
                     .font(.system(size: 11))
                     .foregroundStyle(muted)
                 Spacer(minLength: 12)
@@ -802,7 +845,7 @@ struct ContentView: View {
     private var emptyTitle: String {
         switch model.phase {
         case .loading: return "잠시 후 대화를 기록할 수 있어요"
-        case .ready, .completed: return model.meetingPrepared ? "회의 준비가 끝나면 녹음을 시작하세요" : "새 회의를 준비해 볼까요?"
+        case .ready, .completed: return "녹음을 시작할 수 있어요"
         case .recording: return model.processingFile ? "음성을 읽고 있어요" : "첫 발언을 기다리고 있어요"
         case .paused: return "녹음을 잠시 멈췄어요"
         case .finishing: return "마지막 발언을 정리하고 있어요"
@@ -813,7 +856,7 @@ struct ContentView: View {
     private var emptyDescription: String {
         switch model.phase {
         case .loading: return model.statusMessage
-        case .ready, .completed: return "새 회의에서 자료·목적·참석자를 준비한 뒤 녹음을 시작하세요.\n녹음 중에도 회의자료를 추가할 수 있습니다."
+        case .ready, .completed: return "바로 녹음하거나 새 회의를 준비할 수 있습니다.\n회의 제목과 자료는 녹음 중에도 추가할 수 있습니다."
         case .recording: return model.processingFile ? "음성에서 발언과 화자를 정리하고 있습니다." : "말씀하시면 화자와 함께 내용이 표시됩니다."
         case .paused: return "녹음 재개를 누르면 같은 회의에 이어서 기록합니다."
         case .finishing: return "정리가 끝나면 대화 기록이 자동으로 저장됩니다."
@@ -1141,5 +1184,53 @@ private struct ConversationIllustration: View {
         .frame(width: width)
         .background(.white, in: RoundedRectangle(cornerRadius: 13))
         .shadow(color: AppTheme.violet.opacity(0.07), radius: 12, y: 5)
+    }
+}
+
+private struct LectureDashboard: View {
+    @ObservedObject var assistant: MeetingAssistant
+    let openInput: () -> Void
+    let showTranscript: () -> Void
+    var body: some View {
+        ScrollView {
+            VStack(alignment:.leading,spacing:20) {
+                HStack {
+                    VStack(alignment:.leading,spacing:5) {
+                        Text("강의 흐름").font(.title2.bold())
+                        Text(assistant.status).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("전사 보기",action:showTranscript)
+                    Button("메모·자료 창 열기",action:openInput).buttonStyle(.borderedProminent)
+                }
+                HStack {
+                    Toggle("실시간 요약",isOn:$assistant.enabled)
+                    Button("지금 요약",action:assistant.requestSummary).disabled(assistant.busy)
+                    if assistant.busy { ProgressView().controlSize(.small) }
+                }
+                if let error=assistant.error { Text(error).foregroundStyle(.orange).font(.caption) }
+                GroupBox("현재 주제") {
+                    Text(assistant.state.currentAgenda.isEmpty ? "강의 내용이 쌓이면 현재 주제를 표시합니다." : assistant.state.currentAgenda)
+                        .frame(maxWidth:.infinity,alignment:.leading).padding(8)
+                }
+                GroupBox("지금까지의 강의 요약") {
+                    VStack(alignment:.leading,spacing:10) {
+                        if assistant.state.summary.isEmpty { Text("요약을 준비하고 있습니다.").foregroundStyle(.secondary) }
+                        ForEach(assistant.state.summary) { item in
+                            Text("• " + item.text + (item.stale ? " · 근거 확인 필요" : ""))
+                        }
+                    }.frame(maxWidth:.infinity,alignment:.leading).padding(8)
+                }
+                GroupBox("생각해 볼 질문") {
+                    VStack(alignment:.leading,spacing:10) {
+                        let questions=assistant.state.suggestions.filter { $0.kind == "question" && ($0.status == .active || $0.status == .review) }
+                        if questions.isEmpty && assistant.state.openQuestions.isEmpty { Text("강의 맥락을 분석한 뒤 질문을 표시합니다.").foregroundStyle(.secondary) }
+                        ForEach(questions) { item in Text("• " + item.title + (item.stale ? " · 근거 확인 필요" : "")) }
+                        ForEach(assistant.state.openQuestions) { item in Text("• " + item.text + (item.stale ? " · 근거 확인 필요" : "")) }
+                    }.frame(maxWidth:.infinity,alignment:.leading).padding(8)
+                }
+                Text("반영 범위: " + MeetingMinutesRenderer.time(assistant.state.coverageSeconds)).font(.caption).foregroundStyle(.secondary)
+            }.padding(32).frame(maxWidth:.infinity,alignment:.leading)
+        }
     }
 }

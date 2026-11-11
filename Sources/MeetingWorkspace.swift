@@ -2,6 +2,17 @@ import AppKit
 import Combine
 import Foundation
 
+enum RecordMode: String, Codable, CaseIterable {
+    case meeting, lecture
+    var title: String { self == .lecture ? "강의록·강연록" : "회의록" }
+}
+
+struct LectureNote: Codable, Identifiable {
+    var id = UUID()
+    var seconds: Double
+    var text: String
+}
+
 struct MeetingWorkRecord: Codable {
     var id: UUID
     var revision: Int
@@ -23,9 +34,11 @@ struct MeetingWorkRecord: Codable {
     var assistantAppendix: String? = nil
     var editedOutput: String? = nil
     var endedAt: Date? = nil
+    var mode: RecordMode? = nil
+    var lectureNotes: [LectureNote]? = nil
     var input: MinutesGenerationInput {
         MinutesGenerationInput(segments: segments, purpose: purpose, relatedTopics: template.similarTopics,
-                               speakerNames: Dictionary(uniqueKeysWithValues: names.map { (String($0.key), $0.value) }), materials: materials, title: title)
+                               speakerNames: Dictionary(uniqueKeysWithValues: names.map { (String($0.key), $0.value) }), materials: materials, title: title, mode: mode)
     }
     func snapshot(facts: MeetingMinutesFacts) -> MeetingMinutesSnapshot {
         var people = bindings.confirmedParticipants, speakers = bindings.speakers
@@ -35,7 +48,7 @@ struct MeetingWorkRecord: Codable {
             if !people.contains(where: { $0.name == name }) { people.append(person) }
         }
         return MeetingMinutesSnapshot(sessionID:id,revision:revision,date:date,purpose:purpose,
-            confirmedParticipants:people,speakerBindings:speakers,utterances:segments,facts:facts,title:title,endedAt:endedAt)
+            confirmedParticipants:people,speakerBindings:speakers,utterances:segments,facts:facts,title:title,endedAt:endedAt,lectureNotes: mode == .lecture ? (lectureNotes ?? []).map { "- [" + MeetingMinutesRenderer.time($0.seconds) + "] " + $0.text.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n") : "")
     }
 }
 
@@ -50,6 +63,8 @@ struct MeetingWorkRecord: Codable {
     @Published var templates: [MeetingTemplate] = []
     @Published var selectedID = defaultID { didSet { defaults.set(selectedID.uuidString,forKey:"minutes.template") } }
     @Published var purpose = ""
+    @Published var mode: RecordMode = .meeting
+    @Published var lectureNotes: [LectureNote] = []
     @Published var provider: MinutesProvider = .codex { didSet { defaults.set(provider.rawValue,forKey:"minutes.provider") } }
     @Published var automatic = true { didSet { defaults.set(automatic,forKey:"minutes.automatic") } }
     @Published var generateOnFinish = true { didSet { defaults.set(generateOnFinish,forKey:"minutes.onFinish") } }
@@ -138,6 +153,7 @@ struct MeetingWorkRecord: Codable {
         let attendance=sessionID == nil ? bindings.confirmedParticipants : []
         activeSessions.insert(id)
         sessionID=id;bindings=MeetingSpeakerBindings(sessionID:id)
+        lectureNotes=[]
         for person in attendance { bindings.confirmAttendance(person) }
         generatedURL=nil;generatedPreview="";error=nil;status="회의록 작성 대기"
         let draft=editingDraftURL(id)
@@ -162,7 +178,7 @@ struct MeetingWorkRecord: Codable {
         record.revision=1;record.savedRevision = -1;record.output=nil;record.error=nil
         record.editedOutput=nil
         record.ended=true;record.assistantAppendix="";record.updatedAt=Date()
-        bindings=record.bindings;purpose=record.purpose;provider=record.provider
+        bindings=record.bindings;purpose=record.purpose;provider=record.provider;mode=record.mode ?? .meeting;lectureNotes=record.lectureNotes ?? []
         templates.removeAll { $0.id==record.template.id };templates.append(record.template);selectedID=record.template.id
         materialContext=record.materials ?? MaterialContext();assistantAppendix=""
         records[record.id]=record;signatures.removeValue(forKey:record.id)
@@ -193,11 +209,11 @@ struct MeetingWorkRecord: Codable {
         if !force && now.timeIntervalSince(lastTick)<1 { return };lastTick=now
         let formatter=DateFormatter();formatter.dateFormat="yyyy-MM-dd HH:mm:ss zzz"
         let encoder=JSONEncoder();encoder.outputFormatting=[.sortedKeys]
-        struct Signature:Encodable { let date:Date;let title:String;let ended:Bool;let endedAt:Date?;let segments:[MeetingUtterance];let names:[Int:String];let bindings:MeetingSpeakerBindings;let template:MeetingTemplate;let purpose:String;let provider:MinutesProvider;let settings:CodexCorrectionSettings;let materials:MaterialContext;let assistantAppendix:String }
-        let signature=try? encoder.encode(Signature(date:date,title:title,ended:ended,endedAt:endedAt,segments:segments,names:names,bindings:bindings,template:selectedTemplate,purpose:purpose,provider:provider,settings:settings,materials:materialContext,assistantAppendix:assistantAppendix))
+        struct Signature:Encodable { let date:Date;let title:String;let ended:Bool;let endedAt:Date?;let segments:[MeetingUtterance];let names:[Int:String];let bindings:MeetingSpeakerBindings;let template:MeetingTemplate;let purpose:String;let provider:MinutesProvider;let settings:CodexCorrectionSettings;let materials:MaterialContext;let assistantAppendix:String;let mode:RecordMode;let lectureNotes:[LectureNote] }
+        let signature=try? encoder.encode(Signature(date:date,title:title,ended:ended,endedAt:endedAt,segments:segments,names:names,bindings:bindings,template:selectedTemplate,purpose:purpose,provider:provider,settings:settings,materials:materialContext,assistantAppendix:assistantAppendix,mode:mode,lectureNotes:lectureNotes))
         if signatures[id] != signature {
             let old=records[id]
-            records[id]=MeetingWorkRecord(id:id,revision:(old?.revision ?? 0)+1,savedRevision:old?.savedRevision ?? -1,date:formatter.string(from:date),title:title,purpose:purpose,template:selectedTemplate,bindings:bindings,names:names,segments:segments,ended:ended,provider:provider,settings:settings,output:old?.output,error:nil,updatedAt:now,materials:materialContext,assistantAppendix:assistantAppendix,editedOutput:old?.editedOutput,endedAt:endedAt)
+            records[id]=MeetingWorkRecord(id:id,revision:(old?.revision ?? 0)+1,savedRevision:old?.savedRevision ?? -1,date:formatter.string(from:date),title:title,purpose:purpose,template:selectedTemplate,bindings:bindings,names:names,segments:segments,ended:ended,provider:provider,settings:settings,output:old?.output,error:nil,updatedAt:now,materials:materialContext,assistantAppendix:assistantAppendix,editedOutput:old?.editedOutput,endedAt:endedAt,mode:mode,lectureNotes:lectureNotes)
             signatures[id]=signature
             persist(id)
             if old == nil { lastAttempt[id]=now }
@@ -222,7 +238,7 @@ struct MeetingWorkRecord: Codable {
         guard let id=sessionID,var record=records[id] else { return }
         let encoder=JSONEncoder();encoder.outputFormatting=[.sortedKeys]
         let before=try? encoder.encode(record)
-        record.template=selectedTemplate;record.bindings=bindings;record.purpose=purpose;record.provider=provider;record.settings=settings;record.materials=materialContext;record.assistantAppendix=assistantAppendix
+        record.template=selectedTemplate;record.bindings=bindings;record.purpose=purpose;record.provider=provider;record.settings=settings;record.materials=materialContext;record.assistantAppendix=assistantAppendix;record.mode=mode;record.lectureNotes=lectureNotes
         if before != (try? encoder.encode(record)) {
             record.revision += 1;record.updatedAt=Date();record.error=nil;records[id]=record;persist(id)
         }
@@ -293,7 +309,12 @@ struct MeetingWorkRecord: Codable {
                         if self.shouldAutomaticallyGenerate(record) { self.queue.append(id) }
                         continue
                     }
-                    let url=try await self.store.save(record.snapshot(facts:facts),template:record.template)
+                    var template = record.template
+                    if record.mode == .lecture {
+                        template.markdown = "# {{title}}\n\n## 강의 개요\n\n{{overview}}\n\n## 핵심 요약\n\n{{summary}}\n\n## 주제별 강의 내용\n\n{{discussion}}\n\n## 확인할 사항\n\n{{open_issues}}\n"
+
+                    }
+                    let url=try await self.store.save(record.snapshot(facts:facts),template:template)
                     if record.revision < self.minimumEditRevision[id,default:-1] {
                         self.runningID=nil
                         if self.shouldAutomaticallyGenerate(record) { self.queue.append(id) }

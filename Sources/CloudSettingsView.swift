@@ -35,7 +35,7 @@ struct CloudSettingsView: View {
                     Text(item.title).tag(item)
                 }
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(.menu)
             .labelsHidden()
             .disabled(!model.canChangeRecognitionProvider)
             .accessibilityLabel("사용할 인식 엔진")
@@ -96,6 +96,18 @@ struct CloudSettingsView: View {
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }
+            } else if provider == .qwen {
+                VStack(alignment: .leading, spacing: 9) {
+                    Label("Qwen3-ASR 1.7B · 이 Mac에서 전사", systemImage: "desktopcomputer")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(ink)
+                    Text("녹음 중에는 NVIDIA 초안과 화자가 표시됩니다. 녹음이 끝나거나 음성 파일을 읽은 뒤, Qwen이 본문을 다시 전사해 기존 화자와 연결합니다.")
+                    Text("Qwen을 중지하거나 실행 오류가 발생하면 NVIDIA 초안을 저장합니다.")
+                }
+                .font(.system(size: 11))
+                .lineSpacing(4)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             } else {
                 VStack(alignment: .leading, spacing: 9) {
                     Label("이 Mac에서 음성을 전사합니다", systemImage: "desktopcomputer")
@@ -149,7 +161,7 @@ struct CloudSettingsView: View {
             apiKey = ""
             dismiss()
         } else {
-            saveError = model.errorMessage ?? "API 키와 설정을 확인해 주세요."
+            saveError = model.errorMessage ?? "인식 엔진 설정을 확인해 주세요."
         }
     }
 }

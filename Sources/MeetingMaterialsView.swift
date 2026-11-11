@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct MeetingMaterialsView: View {
     @ObservedObject var materials: MeetingMaterials
@@ -7,12 +8,27 @@ struct MeetingMaterialsView: View {
     @State private var selected: UUID?
     @State private var showVersions=false
     @State private var showTextEntry=false
+    private func pasteCapture() {
+        guard let image = NSImage(pasteboard:NSPasteboard.general), let tiff=image.tiffRepresentation,
+              let bitmap=NSBitmapImageRep(data:tiff), let png=bitmap.representation(using:.png,properties:[:]) else {
+            materials.reportCaptureError("클립보드에 이미지 캡처를 복사한 뒤 다시 시도하세요.")
+            return
+        }
+        do {
+            let folder=FileManager.default.temporaryDirectory.appendingPathComponent("TableLogCaptures",isDirectory:true)
+            try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
+            let url=folder.appendingPathComponent("캡처-"+UUID().uuidString+".png")
+            try png.write(to:url,options:.atomic)
+            materials.importFiles([url],provider:model.meeting.provider,settings:model.codexSettings)
+        } catch { materials.reportCaptureError("캡처 준비 실패 · " + error.localizedDescription) }
+    }
     var body: some View {
         VStack(alignment:.leading,spacing:12) {
             HStack {
                 Button("텍스트 추가",systemImage:"text.badge.plus") { showTextEntry=true }
                 Button("파일 추가",systemImage:"doc.badge.plus") { materials.pickFiles(provider:model.meeting.provider,settings:model.codexSettings) }
                     .help("PDF · 이미지 · TXT · MD 파일을 여러 개 선택할 수 있습니다.")
+                Button("캡처 붙여넣기",systemImage:"doc.on.clipboard") { pasteCapture() }
                 Button("폴더 연결",systemImage:"folder.badge.plus") { materials.pickFolders(provider:model.meeting.provider,settings:model.codexSettings) }
                 Spacer()
                 Button("맥락 분석 재시도") { materials.analyze(provider:model.meeting.provider,settings:model.codexSettings) }.disabled(materials.busy || materials.context.documents.isEmpty)
@@ -22,7 +38,7 @@ struct MeetingMaterialsView: View {
                 TextField("자료 URL · https://…",text:$url).textFieldStyle(.roundedBorder)
                 Button("URL 추가") { materials.importURL(url,provider:model.meeting.provider,settings:model.codexSettings) }.disabled(url.isEmpty)
             }
-            Text("텍스트·파일·URL 자료를 여러 개 추가하고 함께 선택할 수 있습니다. 녹음 중 추가한 자료는 이후 교정과 회의록에 반영됩니다. AI 채팅에 자료 이름과 변경 내용을 적으면 추가·수정안을 확인하고 적용할 수 있습니다.")
+            Text("녹음 중에도 자료를 첨부할 수 있습니다. 추출문은 이후 AI 교정과 회의록에 쓰이고, 분석된 용어는 녹음 종료 후 Qwen 전사에 반영됩니다.")
                 .font(.caption).foregroundStyle(AppTheme.muted)
             Text(model.meeting.provider == .codex ? "맥락 분석·회의록 작성: \(model.codexSettings.provider.title) · 선택 자료의 추출문과 발언을 \(model.codexSettings.provider.destination)로 전달합니다." : "맥락 분석을 사용하려면 ‘회의 설정·참석자’에서 ‘선택한 AI CLI’를 선택하세요.")
                 .font(.caption).foregroundStyle(AppTheme.muted)

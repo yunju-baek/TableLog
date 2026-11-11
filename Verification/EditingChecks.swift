@@ -392,7 +392,8 @@ final class ControlledMicrophone: MicrophoneCapturing {
         let blockedTrash = MeetingHistoryTrash(url: blockedParent.appendingPathComponent("index.json"))
         expectFailure("unwritable deletion index reports failure") { _ = try blockedTrash.setDeleted(originalID, deleted: true) }
         let microphone = ControlledMicrophone()
-        let captureModel = AppModel(materials: materials,
+        let captureMaterials = MeetingMaterials(root: root.appendingPathComponent("CaptureMaterials"))
+        let captureModel = AppModel(materials: captureMaterials,
             meeting: MeetingWorkspace(directory: root.appendingPathComponent("CaptureMinutes"), defaults: defaults),
             assistant: MeetingAssistant(directory: root.appendingPathComponent("CaptureAssistant"), defaults: defaults), loadEngine: false,
             voice: VoiceIdentity(root: root.appendingPathComponent("CaptureVoice")),
@@ -400,12 +401,32 @@ final class ControlledMicrophone: MicrophoneCapturing {
             transcriptDirectory: root.appendingPathComponent("CaptureTranscripts"), startBackgroundServices: false,
             preferences: defaults, microphone: microphone)
         captureModel.meeting.generateOnFinish = false
+        captureModel.phase = .ready
+        check(captureModel.canStartRecording && !captureModel.meetingPrepared,
+              "recording is available without preparing a meeting")
         try captureModel.loadRecordingFixture(directory: root.appendingPathComponent("CaptureAudio"))
         let captureBefore = captureModel.captureFixture
         let speechBefore = captureModel.segments
         captureModel.appendCaptureFixture()
         for _ in 0..<100 where captureModel.captureFixture.seconds < 1 { try await Task.sleep(for: .milliseconds(10)) }
         check(captureModel.canPause && microphone.starts == 1, "microphone capture is ready to pause")
+        captureModel.setMeetingTitle("  지역 AI  실습 회의  ")
+        let liveMaterial = root.appendingPathComponent("live-agenda.txt")
+        try Data("지역 AI 실습 · 장영실AI연구원 협업 안건".utf8).write(to: liveMaterial)
+        captureMaterials.importFiles([liveMaterial], provider: .unavailableLegacy, settings: settings)
+        for _ in 0..<100 where captureMaterials.busy { try await Task.sleep(for: .milliseconds(20)) }
+        let updatedCapture = try JSONSerialization.jsonObject(with: Data(contentsOf: captureModel.lastSavedURL!)) as! [String:Any]
+        check(updatedCapture["title"] as? String == "지역 AI 실습 회의"
+              && captureModel.meeting.metadata?.title == "지역 AI 실습 회의"
+              && captureModel.meetingCorrectionTopic.contains("지역 AI 실습 회의")
+              && captureModel.qwenRecognitionContext.contains("지역 AI 실습 회의"),
+              "live title is saved and used for correction and Qwen")
+        check(captureMaterials.context.excerpts(query: "장영실AI연구원").first?.text.contains("협업 안건") == true
+              && captureModel.meeting.metadata?.materials == captureMaterials.context
+              && (updatedCapture["meeting_materials"] as? [String:Any])?["documents"] is [[String:Any]]
+              && captureModel.phase == .recording && captureModel.captureFixture.id == captureBefore.id
+              && microphone.starts == 1,
+              "file attachment reaches the live context and transcript without restarting capture")
         captureModel.pauseRecording(); captureModel.pauseRecording(); captureModel.resumeRecording()
         check(captureModel.phase == .paused && captureModel.pauseTransition && microphone.pendingStops.count == 1 && microphone.starts == 1,
               "pause drains once and blocks premature or duplicate resume")

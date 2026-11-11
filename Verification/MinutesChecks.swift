@@ -35,6 +35,9 @@ actor MinutesCallLog {
         func snapshot(_ facts:MeetingMinutesFacts) -> MeetingMinutesSnapshot {
             .init(sessionID:UUID(),revision:1,date:"2026-10-21 16:35:59 GMT+9",purpose:"",confirmedParticipants:[person,person],speakerBindings:[1:person],utterances:speech,facts:facts,referenceAppendix:"\n# 도우미 기록\n[00:42] 민감한 부록",title:"사업 추진 회의")
         }
+        let noteSnapshot = MeetingMinutesSnapshot(sessionID:UUID(),revision:1,date:"2026-10-21",purpose:"",confirmedParticipants:[],speakerBindings:[:],utterances:speech,facts:facts,lectureNotes:"- [00:42] 나의 생각 {{summary}}")
+        let noteText = try MeetingMinutesRenderer.render(noteSnapshot,template:MeetingTemplate.fromMeetingMarkdown("",name:"강의",similarTopics:[],participantCandidates:[]))
+        check(noteText.contains("## 수강자 메모\n\n- [00:42] 나의 생각 {{summary}}"), "lecture notes remain separate and preserve literal placeholders")
         let legacy=MeetingTemplate(name:"기존 서식",markdown:"# 핵심 요약\n{{summary}}\n# 결정 사항\n| 결정 | 근거 시각 |\n{{decisions}}\n전사문:\n{{transcript}}",similarTopics:["예산"],participantCandidates:[person])
         let text=try MeetingMinutesRenderer.render(snapshot(facts),template:legacy)
         check(text.hasPrefix("# 사업 추진 회의"),"meeting title included")

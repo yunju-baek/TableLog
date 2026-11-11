@@ -134,6 +134,7 @@ struct AssistantRequest: Codable {
     var evidence: [AssistantEvidence]
     var materialOverview: [String]
     var schemaVersion = 1
+    var mode: RecordMode? = nil
 }
 protocol AssistantGenerating: Actor {
     func generate(_ request: AssistantRequest, settings: CodexCorrectionSettings, debugDirectory: URL) async throws -> AssistantResponse
@@ -202,7 +203,8 @@ actor AssistantGenerator: AssistantGenerating {
         let directory=try CodexCorrector.jobDirectory();defer { try? FileManager.default.removeItem(at:directory) }
         let schemaURL=directory.appendingPathComponent("schema.json"),outputURL=directory.appendingPathComponent("output.json")
         try AssistantFiles.writeData(Data(Self.schema.utf8),to:schemaURL)
-        let prompt=Self.instruction+String(decoding:try AssistantFiles.encoded(request),as:UTF8.self)
+        let lecture = request.mode == .lecture ? "LECTURE MODE: Follow the progression of the lecture. Summarize the main concepts and examples, identify the current topic, and suggest useful questions a learner could ask. Keep learner questions distinct from claims made by the speaker.\n" : ""
+        let prompt=lecture+Self.instruction+String(decoding:try AssistantFiles.encoded(request),as:UTF8.self)
         let result=try await CodexJobContext.$priority.withValue(request.questionID == nil ? .assistant : .userQuestion) {
             try await AITextRunner.run(settings:settings,schema:schemaURL,output:outputURL,input:prompt,directory:directory,timeout:150)
         }

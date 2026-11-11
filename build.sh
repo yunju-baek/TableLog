@@ -30,6 +30,7 @@ xcrun swiftc -module-cache-path "$source_dir/.build-cache" -O -whole-module-opti
   -Xlinker -rpath -Xlinker '@executable_path/../Frameworks' -o "$stage_app/Contents/MacOS/TableLog"
 rm -f "$stage_app/Contents/MacOS/HwajaNote"
 cp "$source_dir/Resources/Info.plist" "$stage_app/Contents/Info.plist"
+cp "$source_dir/Resources/qwen_transcribe.py" "$stage_app/Contents/Resources/"
 # Model weights live outside the replaceable app bundle.
 if [[ -d "$stage_app/Contents/Resources/Models" || -L "$stage_app/Contents/Resources/Models" ]]; then
   rm -rf "$stage_app/Contents/Resources/Models"

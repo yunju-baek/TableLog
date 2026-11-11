@@ -113,6 +113,7 @@ struct MaterialContext: Codable, Equatable {
     let root: URL
     private var task: Task<Void,Never>?
     private var panel: NSOpenPanel?
+    var isChoosingSource: Bool { panel != nil }
     private struct ImportSource {
         let url: URL
         let remote: Bool
@@ -165,12 +166,16 @@ struct MaterialContext: Codable, Equatable {
         try encoder.encode(folders).write(to:file,options:.atomic)
         try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:file.path)
     }
-    func clearSelection() {
-        guard !busy else { return }
+    // The caller saves the previous session before clearing its selection.
+    // Publish the next meeting's context after switching the session ID.
+    func clearSelection() -> Bool {
+        guard !busy, !isChoosingSource else { return false }
+        guard documents.contains(where: \.enabled) || folders.contains(where: \.enabled) else { return true }
         let old=documents,oldFolders=folders
         for i in documents.indices { documents[i].enabled=false }
         for i in folders.indices { folders[i].enabled=false }
-        do { try save();try saveFolders();didChange?() } catch { documents=old;folders=oldFolders;self.error=error.localizedDescription }
+        do { try save();try saveFolders();return true }
+        catch { documents=old;folders=oldFolders;try? save();try? saveFolders();self.error=error.localizedDescription;return false }
     }
     func restoreMeetingContext(_ context: MaterialContext) throws {
         guard !busy, !loadFailed, !folderLoadFailed else {
@@ -198,6 +203,7 @@ struct MaterialContext: Codable, Equatable {
     func pickFiles(provider:MinutesProvider,settings:CodexCorrectionSettings) {
         guard panel==nil else { return }
         let panel=NSOpenPanel();panel.allowsMultipleSelection=true;panel.canChooseDirectories=false
+        panel.prompt = "첨부"
         panel.allowedContentTypes=[.pdf,.png,.jpeg,.plainText, .init(filenameExtension:"md") ?? .plainText]
         self.panel=panel
         panel.begin { [weak self] response in
@@ -475,6 +481,7 @@ struct MaterialContext: Codable, Equatable {
 
 
 extension MeetingMaterials {
+    func reportCaptureError(_ message:String) { error=message }
     @discardableResult
     func addText(title: String, text: String) throws -> UUID {
         let value = EditingMaterialAddition.pasted(title: title, text: text)

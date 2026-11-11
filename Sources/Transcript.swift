@@ -3,8 +3,22 @@ import Foundation
 enum AppPhase { case loading, ready, recording, paused, finishing, completed, failed }
 
 enum RecognitionProvider: String, CaseIterable, Codable {
-    case local, gemini
-    var title: String { self == .gemini ? "Gemini 3.5 Transcribe" : "NVIDIA 로컬" }
+    case local, qwen, gemini
+    var title: String {
+        switch self {
+        case .local: return "NVIDIA 로컬"
+        case .qwen: return "Qwen3-ASR 1.7B"
+        case .gemini: return "Gemini 3.5 Transcribe"
+        }
+    }
+
+    var modelName: String {
+        switch self {
+        case .local: return "nemotron-3.5-asr-streaming-0.6b"
+        case .qwen: return QwenTranscriber.modelName
+        case .gemini: return GeminiTranscriber.modelName
+        }
+    }
 }
 
 struct SpeakerActivity: Codable {
