@@ -18,3 +18,13 @@ MeetingMaterials/
 Assistant/
 VoiceProfiles/
 Diagnostics/
+
+# Android local builds, SDK paths, keys, and device captures
+Android/.gradle/
+Android/.kotlin/
+Android/**/build/
+Android/local.properties
+Android/*.jks
+Android/*.keystore
+Android/verification-local/
+Android/scripts/__pycache__/
