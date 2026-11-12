@@ -20,7 +20,7 @@ enum SessionAudioRecorderError: LocalizedError {
         case .invalidSamples:
             return "M4A 녹음 입력에 유효한 범위를 벗어난 음성 값이 포함되어 있습니다."
         case .backlogExceeded:
-            return "M4A 저장 대기 음성이 30초를 초과했습니다. 저장 공간과 디스크 상태를 확인해 주세요."
+            return "M4A 인코딩과 저장이 입력 속도를 따라가지 못했습니다. 저장 대기 한도는 음성 30초입니다."
         case .writeFailed(let detail):
             return "M4A 음성 저장 중 오류가 발생했습니다. \(detail)"
         case .finalizationFailed(let detail):
@@ -38,19 +38,22 @@ final class SessionAudioRecorder: @unchecked Sendable {
     // Apple's mono AAC encoder accepts up to 48 kbps at this sample rate.
     static let bitRate = 48_000
     static let maximumPendingSamples = 16_000 * 30
+    private static let batchSamples = 8_192
 
     let url: URL
     let recordingURL: URL
 
-    private let queue = DispatchQueue(label: "kr.hwajanote.audio.m4a", qos: .utility)
-    private let lock = NSLock()
+    private let queue = DispatchQueue(label: "kr.hwajanote.audio.m4a", qos: .userInitiated)
+    private let lock = NSCondition()
     private var accepting = true
     private var pendingSamples = 0
+    private var batch: [Float] = []
     private var writtenSamples: Int64 = 0
     private var firstError: Error?
 
     // Accessed only on queue after init. Releasing AVAudioFile closes its encoder.
     private var writer: AVAudioFile?
+    private var writeFailed = false
     private var finishResult: Result<URL?, Error>?
 
     var capturedSeconds: Double {
@@ -94,7 +97,9 @@ final class SessionAudioRecorder: @unchecked Sendable {
         }
     }
 
-    func append(_ samples: [Float]) {
+    /// File decoding can run many times faster than real time. Only its worker
+    /// may wait for capacity. Microphone ingress must return immediately.
+    func append(_ samples: [Float], waitForCapacity: Bool = false) {
         guard !samples.isEmpty else { return }
         lock.lock()
         defer { lock.unlock() }
@@ -102,30 +107,48 @@ final class SessionAudioRecorder: @unchecked Sendable {
         guard samples.allSatisfy(\.isFinite) else {
             firstError = SessionAudioRecorderError.invalidSamples
             accepting = false
+            lock.broadcast()
             return
+        }
+        if waitForCapacity && samples.count <= Self.maximumPendingSamples {
+            while accepting && samples.count > Self.maximumPendingSamples - pendingSamples {
+                enqueueBatch()
+                lock.wait()
+            }
+            guard accepting else { return }
         }
         guard samples.count <= Self.maximumPendingSamples - pendingSamples else {
             firstError = SessionAudioRecorderError.backlogExceeded
             accepting = false
+            lock.broadcast()
             return
         }
         pendingSamples += samples.count
+        batch.append(contentsOf: samples)
+        if batch.count >= Self.batchSamples { enqueueBatch() }
+    }
+
+    // Caller holds the lock. finish enqueues the last short batch before its barrier.
+    private func enqueueBatch() {
+        guard !batch.isEmpty else { return }
+        let samples = batch
+        batch = []
         // Enqueue under lock, so finish's barrier follows every accepted packet.
         queue.async { [self] in
             defer {
                 lock.lock()
                 pendingSamples -= samples.count
+                lock.broadcast()
                 lock.unlock()
             }
-            lock.lock()
-            let failed = firstError != nil
-            lock.unlock()
-            guard !failed else { return }
+            // Input rejection leaves the writer usable for the accepted prefix.
+            guard !writeFailed else { return }
             autoreleasepool {
                 guard let writer,
                       let buffer = AVAudioPCMBuffer(pcmFormat: writer.processingFormat,
                                                     frameCapacity: AVAudioFrameCount(samples.count)),
                       let destination = buffer.floatChannelData?[0] else {
+                    writeFailed = true
                     recordFailure(SessionAudioRecorderError.writeFailed("음성 버퍼 할당에 실패했습니다."))
                     return
                 }
@@ -139,6 +162,7 @@ final class SessionAudioRecorder: @unchecked Sendable {
                     writtenSamples += Int64(samples.count)
                     lock.unlock()
                 } catch {
+                    writeFailed = true
                     recordFailure(SessionAudioRecorderError.writeFailed(error.localizedDescription))
                 }
             }
@@ -158,6 +182,8 @@ final class SessionAudioRecorder: @unchecked Sendable {
     func finish() throws -> URL? {
         lock.lock()
         accepting = false
+        enqueueBatch()
+        lock.broadcast()
         lock.unlock()
         return try queue.sync {
             if let finishResult { return try finishResult.get() }
@@ -191,5 +217,6 @@ final class SessionAudioRecorder: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         if firstError == nil { firstError = error }
         accepting = false
+        lock.broadcast()
     }
 }

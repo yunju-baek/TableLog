@@ -7,56 +7,73 @@ enum TranscriptPresentation {
 }
 
 enum TranscriptNotation {
-    private static let wordEnd = #"(?=$|[^\p{L}\p{N}])"#
-    private static let particles = "(?:입니다|이라고|이라는|으로|에서|에게|까지|부터|처럼|이라|은|는|이|가|을|를|도|에|의|와|과)"
-    private static let counters = "(?:킬로그램|퍼센트|개월|시간|분기|달러|유로|년|월|일|시|분|초|원|명|개|건|회|번|대|쪽|장|층|호|배|점|권)"
-    private static let abbreviationPatterns: [(String, String)] = [
-        (#"에이\h*피\h*아이"#, "API"),
-        (#"에이\h*아이"#, "AI"),
-        (#"엘\h*엘\h*엠"#, "LLM"),
-        (#"지\h*피\h*유"#, "GPU"),
-        (#"(?:씨|시)\h*피\h*유"#, "CPU")
+    static let wordStart = #"(?<![\p{L}\p{N}])"#
+    static let wordEnd = #"(?=$|[^\p{L}\p{N}])"#
+    static let particles = "(?:입니다|이라고|이라는|으로|에서|에게|까지|부터|처럼|이라|은|는|이|가|을|를|도|에|의|와|과)"
+
+    private static let alphabet: [String: String] = [
+        "에이": "A", "비": "B", "씨": "C", "시": "C", "디": "D", "이": "E", "에프": "F",
+        "지": "G", "에이치": "H", "아이": "I", "제이": "J", "케이": "K", "엘": "L",
+        "엠": "M", "엔": "N", "오": "O", "피": "P", "큐": "Q", "알": "R", "에스": "S",
+        "티": "T", "유": "U", "브이": "V", "더블유": "W", "엑스": "X", "와이": "Y", "제트": "Z", "지드": "Z"
     ]
-    private static let abbreviations = try! NSRegularExpression(
-        pattern: #"(?<![\p{L}\p{N}])(?:"# + abbreviationPatterns.map { "(" + $0.0 + ")" }.joined(separator: "|")
-            + ")(?=" + particles + "?" + wordEnd + ")"
+    private static let letter = "(?:" + alphabet.keys.sorted { ($0.count, $0) > ($1.count, $1) }.joined(separator: "|") + ")"
+    private static let letterToken = try! NSRegularExpression(pattern: letter)
+    private static let letterRun = try! NSRegularExpression(
+        pattern: wordStart + letter + "(?:\\h*" + letter + ")+(?=" + particles + "?" + wordEnd + ")"
     )
-    private static let numbers = try! NSRegularExpression(
-        pattern: #"(?<![\p{L}\p{N}])([영공일이삼사오육칠팔구십백천만억조]+)"#
-            + "(?:(?=\\h*(" + counters + ")" + particles + "?" + wordEnd + ")|(?=" + particles + "?" + wordEnd + "))"
-    )
-    private static let digits: [Character: Int] = ["영": 0, "공": 0, "일": 1, "이": 2, "삼": 3, "사": 4, "오": 5, "육": 6, "칠": 7, "팔": 8, "구": 9]
-    private static let smallUnits: [Character: Int] = ["십": 10, "백": 100, "천": 1_000]
-    private static let largeUnits: [(Character, Int)] = [("조", 1_000_000_000_000), ("억", 100_000_000), ("만", 10_000)]
-    private static let integerFormat = IntegerFormatStyle<Int>(locale: Locale(identifier: "ko_KR"))
+    // Compact or short spellings can also be ordinary Korean. Familiar initialisms
+    // support forms such as 피디에프 while spaced, explicit letter sequences stay open-ended.
+    private static let compactInitialisms: Set<String> = [
+        "AI", "API", "AR", "ASR", "AWS", "BI", "CEO", "CFO", "CLI", "CPU", "CRM", "CSV",
+        "CTO", "DB", "ERP", "FAQ", "GIS", "GPT", "GPU", "GUI", "HR", "HTTP", "HTTPS", "ICT",
+        "ID", "IDE", "IOT", "IP", "IR", "IT", "JWT", "KPI", "LLM", "MCP", "ML", "NLP",
+        "OCR", "OKR", "OS", "PC", "PDF", "PR", "QA", "RAG", "ROI", "SaaS", "SDK", "SLA",
+        "SQL", "STT", "TTS", "UI", "URL", "USB", "UX", "VAD", "VPN", "VR", "XML"
+    ]
+    private static let longestInitialism = compactInitialisms.map(\.count).max() ?? 0
 
     static func normalize(_ text: String) -> String {
-        let expanded = replacing(in: text, matches: abbreviations) { _, match in
-            abbreviationPatterns.indices.first { match.range(at: $0 + 1).location != NSNotFound }
-                .map { abbreviationPatterns[$0].1 }
+        let abbreviations = replacing(in: text, matches: letterRun) { source, match in
+            let tokens = letterToken.matches(in: source as String, range: match.range)
+            let letters = tokens.map { source.substring(with: $0.range) }
+            let latin = letters.compactMap { alphabet[$0] }
+            let initialism = latin.joined()
+            if compactInitialisms.contains(initialism) { return initialism }
+
+            let gaps = zip(tokens, tokens.dropFirst()).map { NSMaxRange($0.range) < $1.range.location }
+            let rewritten = NSMutableString(string: source.substring(with: match.range))
+            var start = 0
+            var matches: [(NSRange, String)] = []
+            while start < tokens.count {
+                let limit = min(start + longestInitialism, tokens.count)
+                if let end = (start + 1...limit).reversed().first(where: { end in
+                    let boundary = end == tokens.count || gaps[end - 1]
+                        || (end == tokens.count - 1 && letters[end] == "이")
+                    return boundary && compactInitialisms.contains(latin[start..<end].joined())
+                }) {
+                    let lower = tokens[start].range.location
+                    let upper = NSMaxRange(tokens[end - 1].range)
+                    matches.append((NSRange(location: lower - match.range.location, length: upper - lower),
+                                    latin[start..<end].joined()))
+                    start = end
+                } else {
+                    repeat { start += 1 } while start < tokens.count && !gaps[start - 1]
+                }
+            }
+            for (range, value) in matches.reversed() { rewritten.replaceCharacters(in: range, with: value) }
+            if !matches.isEmpty { return rewritten as String }
+
+            let explicit = letters.filter { $0.count > 1 && $0 != "아이" }.count
+            guard gaps.allSatisfy({ $0 }), explicit >= (letters.count > 2 ? 1 : 2),
+                  !letters.contains("이"), !letters.contains("오") else { return nil }
+            return initialism
         }
-        return replacing(in: expanded, matches: numbers) { source, match in
-            let spelling = source.substring(with: match.range(at: 1))
-            let counter = match.range(at: 2)
-            if spelling.count == 1 {
-                guard counter.location == NSMaxRange(match.range), spelling != "이", spelling != "일" else { return nil }
-            }
-            // A subject particle can immediately follow a large counting unit.
-            if counter.location == NSNotFound, spelling.last == "이",
-               let preceding = spelling.dropLast().last, largeUnits.contains(where: { $0.0 == preceding }),
-               let value = parse(spelling.dropLast()) {
-                return formatted(value) + "이"
-            }
-            guard let value = parse(spelling[...]) else { return nil }
-            if counter.location != NSNotFound, source.substring(with: counter) == "년", (1000...9999).contains(value) {
-                return String(value)
-            }
-            return formatted(value)
-        }
+        return KoreanTranscriptNumbers.normalize(abbreviations)
     }
 
-    private static func replacing(in text: String, matches pattern: NSRegularExpression,
-                                  replacement: (NSString, NSTextCheckingResult) -> String?) -> String {
+    static func replacing(in text: String, matches pattern: NSRegularExpression,
+                          replacement: (NSString, NSTextCheckingResult) -> String?) -> String {
         let source = text as NSString
         let matches = pattern.matches(in: text, range: NSRange(location: 0, length: source.length))
         guard !matches.isEmpty else { return text }
@@ -65,42 +82,5 @@ enum TranscriptNotation {
             if let value = replacement(source, match) { output.replaceCharacters(in: match.range, with: value) }
         }
         return output as String
-    }
-
-    private static func parse(_ text: Substring) -> Int? {
-        var total = 0, group = 0
-        var digit: Int?
-        var lastSmall = 10_000, lastLarge = Int.max
-        for character in text {
-            if let value = digits[character] {
-                guard digit == nil else { return nil }
-                digit = value
-            } else if let unit = smallUnits[character] {
-                guard unit < lastSmall, digit != 0 else { return nil }
-                group += (digit ?? 1) * unit
-                digit = nil
-                lastSmall = unit
-            } else if let unit = largeUnits.first(where: { $0.0 == character })?.1 {
-                let value = group + (digit ?? 0)
-                guard unit < lastLarge, value > 0 || total == 0 && digit == nil else { return nil }
-                total += max(1, value) * unit
-                group = 0
-                digit = nil
-                lastSmall = 10_000
-                lastLarge = unit
-            }
-        }
-        return total + group + (digit ?? 0)
-    }
-
-    private static func formatted(_ value: Int) -> String {
-        var parts: [String] = []
-        var remaining = value
-        for (name, unit) in largeUnits where remaining >= unit {
-            parts.append((remaining / unit).formatted(integerFormat) + String(name))
-            remaining %= unit
-        }
-        if remaining > 0 || parts.isEmpty { parts.append(remaining.formatted(integerFormat)) }
-        return parts.joined(separator: " ")
     }
 }

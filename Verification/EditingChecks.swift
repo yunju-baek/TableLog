@@ -97,6 +97,33 @@ final class ControlledMicrophone: MicrophoneCapturing {
         let ordinaryWords = "이 회의에서 삼성과 오십견, 케이에이아이랩, 버전 2.9.0을 확인했습니다."
         check(TranscriptPresentation.format(ordinaryWords) == ordinaryWords,
               "ordinary words, company names and existing numeric spellings are preserved")
+        check(TranscriptNotation.normalize("이억 오천만 원, 삼 십 오 명, 스무개, 열 두 건, 삼월 칠 일, 삼 점 일 사 배")
+                == "2억 5,000만 원, 35 명, 20개, 12 건, 3월 7 일, 3.14 배",
+              "amounts, separated numerals, native counters, dates and decimals normalize")
+        check(TranscriptNotation.normalize("피디에프 에이 피 아이, 엠 씨 피와 제이 큐 브이, 에이 아이 이 회의")
+                == "PDF API, MCP와 JQV, AI 이 회의",
+              "adjacent acronyms, new spelled letter sequences and following words are handled")
+        let ambiguousWords = "이 아이는 이 시간에 공원 구조와 사장 일시를 봤다. 이제 이만 마치고 오만과 편견은 반납합니다."
+        check(TranscriptNotation.normalize(ambiguousWords) == ambiguousWords,
+              "ordinary Korean homographs are preserved")
+
+        let audioDirectory = root.appendingPathComponent("AudioWriter")
+        let importedAudio = try SessionAudioRecorder(directory: audioDirectory, sessionID: UUID())
+        let audioPacket = Array(repeating: Float(0.02), count: 1_600)
+        for _ in 0..<900 { importedAudio.append(audioPacket, waitForCapacity: true) }
+        let importedURL = try importedAudio.finish()!
+        let importedFrames = try AVAudioFile(forReading: importedURL).length
+        check(importedAudio.capturedSeconds == 90 && abs(Double(importedFrames) / 16_000 - 90) < 0.2,
+              "a fast file producer saves every accepted sample through multiple queue capacities")
+
+        let partialAudio = try SessionAudioRecorder(directory: audioDirectory, sessionID: UUID())
+        partialAudio.append(audioPacket)
+        partialAudio.append(Array(repeating: 0, count: SessionAudioRecorder.maximumPendingSamples + 1))
+        expectFailure("a live queue overflow leaves an explicit partial result") { try partialAudio.finish() }
+        let partialFrames = try AVAudioFile(forReading: partialAudio.recordingURL).length
+        check(partialAudio.capturedSeconds == 0.1 && partialFrames > 0
+              && !FileManager.default.fileExists(atPath: partialAudio.url.path),
+              "a rejected packet leaves previously accepted audio playable")
         let legacy=Data(#"{"mode":"codex","model":"old-model","effort":"low","batchSeconds":20,"executablePath":"/legacy/codex"}"#.utf8)
         var profiles=try JSONDecoder().decode(CodexCorrectionSettings.self,from:legacy)
         check(profiles.provider == .codex && profiles.model=="old-model","legacy CLI settings restored")

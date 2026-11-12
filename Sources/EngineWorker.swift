@@ -26,7 +26,7 @@ final class EngineWorker {
     }
 
     /// Called synchronously on the recognition queue after each accepted PCM packet.
-    /// The observer should only append to a bounded buffer and notify its consumer.
+    /// Microphone observers return immediately. File observers can apply backpressure.
     func setAudioObserver(_ observer: ((UUID, [Float]) -> Void)?) {
         lock.lock(); audioObserver = observer; lock.unlock()
     }
@@ -170,6 +170,7 @@ final class EngineWorker {
     /// Uses the same stream as the microphone, with bounded file decoding on the engine queue.
     func transcribeFile(_ url: URL, session: UUID, lowLatency: Bool, phrases: [String] = [], tuning: EngineTuningSettings = EngineTuningSettings(),
                         shouldPauseAudio: ((UUID) -> Bool)? = nil,
+                        onAudioDrained: (() -> Void)? = nil,
                         onProgress: ((AudioFileProgress) -> Void)? = nil,
                         onSnapshot: @escaping (EngineSnapshot) -> Void,
                         completion: @escaping (Result<(EngineSnapshot, Bool), Error>) -> Void) {
@@ -195,6 +196,7 @@ final class EngineWorker {
                 }
                 updates.publish(progress: progress, snapshot: snapshot)
             }
+            let result: Result<(EngineSnapshot, Bool), Error>
             do {
                 try self.beginOnQueue(session, lowLatency: lowLatency, phrases: phrases, tuning: tuning, resetCancellation: false)
                 publish(.openingFile)
@@ -267,11 +269,13 @@ final class EngineWorker {
                 guard let snapshot = try self.snapshotOnQueue(force: true) else { throw self.nativeError() }
                 self.queueSession = nil
                 self.lock.lock(); self.acceptingAudio = false; self.lock.unlock()
-                DispatchQueue.main.async { completion(.success((snapshot, stopped))) }
+                result = .success((snapshot, stopped))
             } catch {
                 self.queueSession = nil
-                DispatchQueue.main.async { completion(.failure(error)) }
+                result = .failure(error)
             }
+            onAudioDrained?()
+            DispatchQueue.main.async { completion(result) }
         }
     }
 

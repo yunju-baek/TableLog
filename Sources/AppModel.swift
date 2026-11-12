@@ -93,6 +93,7 @@ import UniformTypeIdentifiers
     @Published private(set) var savedAudioURL: URL?
     @Published private(set) var audioSaveStatus = "M4A 저장 · 준비"
     private var audioRecorder: SessionAudioRecorder?
+    private var audioRecordingFinalized = false
     private var audioFailure: String?
     private var audioFileStatus = "ready"
     private var debugRecorder: TranscriptDebugRecorder?
@@ -357,7 +358,7 @@ import UniformTypeIdentifiers
         appliedASRTerms = referenceTerms
         inputLevel = 0; queuedSeconds = 0; lastSavedURL = nil; fileProgress = nil
         errorMessage = nil; pendingFailure = nil; finalStatus = "in_progress"; lastDraftAt = .distantPast
-        audioRecorder=nil; savedAudioURL=nil; debugRecorder=nil; lastDebugURL=nil; comparisonURL=nil
+        audioRecorder=nil; audioRecordingFinalized=false; savedAudioURL=nil; debugRecorder=nil; lastDebugURL=nil; comparisonURL=nil
         audioFailure=nil; audioFileStatus="ready"; audioSaveStatus="M4A 저장 · 녹음 시작 대기"
         debugStatus="인식 변경 기록 · 녹음 시작 대기"
         if prepareOnly { meetingPrepared=true;phase = .ready;return true }
@@ -372,7 +373,7 @@ import UniformTypeIdentifiers
         worker.setAudioObserver { [cloudBuffer, recorder = audioRecorder, voiceAudio = voice.audio] id, samples in
             voiceAudio.append(samples, session: id)
             if recordCloud { cloudBuffer.append(session: id, samples: samples) }
-            if recordFromEngine { recorder?.append(samples) }
+            if recordFromEngine { recorder?.append(samples, waitForCapacity: true) }
         }
         if sessionProvider == .gemini { startCloud() }
         return true
@@ -575,7 +576,10 @@ import UniformTypeIdentifiers
         worker.transcribeFile(url, session: id, lowLatency: lowLatency, phrases: appliedASRTerms, tuning: sessionEngineSettings,
             shouldPauseAudio: sessionProvider == .gemini ? { [cloudBuffer] _ in
                 cloudBuffer.failure == nil && cloudBuffer.bufferedSeconds >= Double(CloudAudioBuffer.filePauseSeconds)
-            } : nil, onProgress: { [weak self] progress in
+            } : nil, onAudioDrained: { [recorder = audioRecorder] in
+                // Close the writer off the UI thread. finishAudioRecording reads its cached result.
+                _ = try? recorder?.finish()
+            }, onProgress: { [weak self] progress in
             guard let self, self.session == id, self.processingFile, self.phase == .recording else { return }
             self.fileProgress = progress
             self.statusMessage = progress.statusText
@@ -1232,7 +1236,7 @@ import UniformTypeIdentifiers
     }
 
     private func beginAudioRecording() -> Bool {
-        audioRecorder = nil; savedAudioURL = nil; audioFailure = nil
+        audioRecorder = nil; audioRecordingFinalized = false; savedAudioURL = nil; audioFailure = nil
         audioFileStatus = "recording"; audioSaveStatus = "M4A 음성 저장 중"
         let directory = testOutputURL?.deletingLastPathComponent().appendingPathComponent("Audio", isDirectory: true)
             ?? StorageLocations.recordings
@@ -1261,7 +1265,8 @@ import UniformTypeIdentifiers
     }
 
     private func finishAudioRecording() {
-        guard let recorder = audioRecorder else { return }
+        guard !audioRecordingFinalized, let recorder = audioRecorder else { return }
+        audioRecordingFinalized = true
         do {
             savedAudioURL = try recorder.finish()
             audioFileStatus = savedAudioURL == nil ? "empty" : "saved"
