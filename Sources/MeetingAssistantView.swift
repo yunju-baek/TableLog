@@ -8,9 +8,10 @@ struct MeetingAssistantView: View {
     @ObservedObject var assistant: MeetingAssistant
     @ObservedObject var chat: MeetingEditingChat
     var provider: AITextProvider = .codex
+    var onConnectAI: (() -> Void)? = nil
     @AppStorage("assistant.fontStep") private var fontStep = 1
     @State private var question = ""
-    @State private var showSummary = false
+    @State private var showSummary = true
     @State private var sheet: AssistantPanelSheet?
     @State private var showEarlierQuestions = false
     @State private var showArchivedSuggestions = false
@@ -51,7 +52,7 @@ struct MeetingAssistantView: View {
             questionComposer
         }
         .assistantFont(13)
-        .frame(minWidth: 340, idealWidth: 370, maxWidth: 430, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppTheme.paper)
         .foregroundStyle(AppTheme.ink)
         .tint(AppTheme.violet)
@@ -73,8 +74,15 @@ struct MeetingAssistantView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles").foregroundStyle(AppTheme.rose)
-                Text("회의 편집").assistantFont(16, weight: .bold)
+                Text("회의 도우미").assistantFont(20, weight: .bold)
                 Spacer(minLength: 4)
+                if let onConnectAI {
+                    Button(action: onConnectAI) {
+                        Label(provider.title, systemImage: "person.crop.circle")
+                    }
+                    .help("개인 AI 계정 연결")
+                    .accessibilityLabel("개인 AI 계정 연결")
+                }
                 Button { fontStep = AssistantTextSize.clamped(fontStep) - 1 } label: {
                     Text("가−").font(.system(size: 12, weight: .semibold)).frame(width: 28, height: 28)
                 }.disabled(AssistantTextSize.clamped(fontStep) == AssistantTextSize.range.lowerBound)

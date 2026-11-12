@@ -9,7 +9,7 @@ struct EditingConversationView: View {
             if chat.entries.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("말하듯 요청하면, 기록을 다듬어요.").assistantFont(14, weight: .semibold)
-                    Text("“예산을 설명한 발언을 화자 2로 바꿔 줘”\n“회의록을 결정 사항 중심으로 정리해 줘”\n“이 내용을 ‘회의 배경’ 자료로 추가해 줘”\n“‘사업계획’ 자료의 일정을 11월로 수정해 줘”")
+                    Text("“전사록 및 회의록 교정: 코코전자 → 쿠쿠전자”\n“예산을 설명한 발언을 화자 2로 바꿔 줘”\n“회의록을 결정 사항 중심으로 정리해 줘”\n“이 내용을 ‘회의 배경’ 자료로 추가해 줘”")
                         .assistantFont(11).lineSpacing(6).foregroundStyle(AppTheme.muted)
                     Text("수정안을 확인하고 적용하면 기록에 반영됩니다.")
                         .assistantFont(10).foregroundStyle(AppTheme.muted)
@@ -33,6 +33,9 @@ struct EditingConversationView: View {
                 HStack(spacing: 7) { ProgressView().controlSize(.regular); Text("자료를 살펴보고 있어요…").assistantFont(11) }
             }
             if !entry.answer.isEmpty { Text(entry.answer).assistantFont(13).textSelection(.enabled).lineSpacing(5) }
+            if let preview = entry.bulkPreview {
+                bulkPreview(preview)
+            }
             if let plan = entry.plan, plan.changeCount > 0 {
                 DisclosureGroup("변경 \(plan.changeCount)개 · 전후 비교") {
                     VStack(alignment: .leading, spacing: 12) {
@@ -72,6 +75,30 @@ struct EditingConversationView: View {
             }
         }.padding(.vertical, 5)
     }
+
+    private func bulkPreview(_ preview: MeetingBulkCorrection.Preview) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(preview.coverage).assistantFont(11, weight: .semibold).foregroundStyle(AppTheme.violet)
+            if let title = preview.newTitle {
+                Text("회의 제목 · " + [preview.previousTitle, title].compactMap { $0 }.joined(separator: " → "))
+                    .assistantFont(12).textSelection(.enabled)
+            }
+            ForEach(Array(preview.rules.enumerated()), id: \.offset) { _, count in
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(count.rule.before + (count.rule.optionalQuestionMark ? "(?)" : "") + " → " + count.rule.after)
+                        .assistantFont(12, weight: .medium).textSelection(.enabled)
+                    let counts = [
+                        preview.transcript ? "전사록 \(count.transcript)건" : nil,
+                        count.speakers > 0 ? "화자 이름 \(count.speakers)건" : nil,
+                        preview.hasMinutes ? "회의록 \(count.minutes)건" : nil
+                    ].compactMap { $0 }
+                    Text(counts.joined(separator: " · ")).assistantFont(10).foregroundStyle(AppTheme.muted)
+                }
+            }
+        }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
+            .background(.white, in: RoundedRectangle(cornerRadius: 8))
+    }
+
     private func changeRow(_ change: EditingChange, snapshot: EditingSnapshot?) -> some View {
         let doc=snapshot?.documents.first(where: { $0.id==change.targetID })
         return VStack(alignment: .leading, spacing: 5) {

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
@@ -17,6 +18,9 @@ struct ContentView: View {
     @State private var showingComparison = false
     @State private var comparisonTurnID: String?
     @State private var followLatest = true
+    @State private var transcriptAtBottom = true
+    @State private var scrollingTranscript = false
+    @State private var latestTranscriptJump = 0
     @State private var copied = false
     @State private var showingSpeakerNames = false
     @State private var showingContextEditor = false
@@ -30,19 +34,24 @@ struct ContentView: View {
     private let muted = AppTheme.muted
     private let violet = AppTheme.violet
     private let paper = AppTheme.paper
+    private var transcriptInset: CGFloat { showingAssistant ? 16 : 32 }
+    private var shouldFollowTranscript: Bool {
+        followLatest && transcriptAtBottom && !scrollingTranscript
+            && !showingSpeakerNames && !showingContextEditor && !showingCloudSettings
+            && !showingComparison && !showingSpeakerReview
+    }
 
     var body: some View {
         HStack(spacing: 0) {
-            sidebar
-                .frame(width: 270)
-            mainPanel
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            sidebar.frame(width: 270)
+            mainPanel.frame(maxWidth: .infinity, maxHeight: .infinity)
             if showingAssistant {
                 Divider().overlay(AppTheme.violet.opacity(0.12))
-                MeetingAssistantView(assistant: model.assistant, chat: model.editingChat, provider: model.codexSettings.provider)
+                MeetingAssistantView(assistant: model.assistant, chat: model.editingChat,
+                                     provider: model.codexSettings.provider, onConnectAI: openAISettings)
                     .onAppear { model.editingChat.syncSession(model.editingSessionID) }
                     .onChange(of: model.editingSessionID) { _, id in model.editingChat.syncSession(id) }
-                    .frame(width: 370)
+                    .containerRelativeFrame(.horizontal) { width, _ in width / 2 }
             }
         }
         .background(paper)
@@ -57,6 +66,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingMeeting) {
             MeetingWorkspaceView(model: model, workspace: model.meeting, dismiss: { showingMeeting = false }, initialTab: meetingTab)
+        }
+        .sheet(isPresented: $showingContextEditor) {
+            ContextEditorView(model: model) { showingContextEditor = false }.id(contextEditorID)
         }
         .sheet(isPresented: $showingComparison) {
             RecognitionComparisonView(model: model, turnID: comparisonTurnID) { showingComparison = false }
@@ -74,11 +86,25 @@ struct ContentView: View {
             showingMeetingHistory = true
         }
         .onReceive(NotificationCenter.default.publisher(for: AppHelp.showAISettings)) { _ in
-            showingSpeakerNames=false;showingCloudSettings=false;contextEditorID=UUID();showingContextEditor=true
+            openAISettings()
         }
         .onChange(of: model.speakerIDs) { _, speakers in
             if speakers.isEmpty { showingSpeakerNames = false }
         }
+        .onChange(of: model.editingSessionID) { _, _ in
+            transcriptAtBottom = true
+            scrollingTranscript = false
+        }
+        .onChange(of: followLatest) { _, enabled in
+            if enabled { jumpToLatestTranscript() }
+        }
+    }
+
+    private func openAISettings() {
+        showingSpeakerNames = false
+        showingCloudSettings = false
+        contextEditorID = UUID()
+        showingContextEditor = true
     }
 
     private var sidebar: some View {
@@ -440,104 +466,100 @@ struct ContentView: View {
 
     private var mainPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("테이블로그")
-                        .font(.system(size: 30, weight: .bold))
-                        .tracking(-1)
-                        .foregroundStyle(ink)
-                    Text("대화를 기록하고, 회의의 다음 단계를 함께 살펴봅니다.")
-                        .font(.system(size: 13))
-                        .foregroundStyle(muted)
-                }
-                Spacer()
-                Button {
-                    showingSpeakerNames = false
-                    showingContextEditor = false
-                    cloudSettingsID = UUID()
-                    showingCloudSettings = true
-                } label: {
-                    Label("인식 엔진", systemImage: model.usesGemini ? "cloud" : "desktopcomputer")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(AppTheme.violet)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(AppTheme.lavender, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .help("NVIDIA, Qwen, Gemini 중 음성 인식 엔진을 선택합니다.")
-                .accessibilityLabel("인식 엔진 설정")
-                .accessibilityValue(model.recognitionProvider.title)
-                .popover(isPresented: $showingCloudSettings, arrowEdge: .top) {
-                    CloudSettingsView(model: model) { showingCloudSettings = false }
-                        .id(cloudSettingsID)
-                }
-                .padding(.top, 4)
-                Button {
-                    showingSpeakerNames = false
-                    showingCloudSettings = false
-                    contextEditorID = UUID()
-                    showingContextEditor = true
-                } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: "text.badge.checkmark")
-                        Text("AI 설정")
-                        Circle()
-                            .fill(model.codexSettings.mode != .off ? AppTheme.violet : muted.opacity(0.4))
-                            .frame(width: 6, height: 6)
-                    }
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(AppTheme.violet)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(AppTheme.lavender, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .help("AI CLI 선택, 모델·연결·문맥 교정을 설정합니다.")
-                .accessibilityLabel("AI CLI 설정")
-                .accessibilityValue(model.codexSettings.provider.title + " · " + model.codexSettings.mode.title)
-                .popover(isPresented: $showingContextEditor, arrowEdge: .top) {
-                    ContextEditorView(model: model) { showingContextEditor = false }
-                        .id(contextEditorID)
-                }
-                .padding(.top, 4)
-                Button {
-                    editSpeakerNames()
-                } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: "person.2.fill")
-                        Text("화자 이름")
-                        if !model.speakerIDs.isEmpty {
-                            Text("\(model.speakerIDs.count)")
-                                .font(.system(size: 10, weight: .bold, design: .rounded))
-                                .frame(minWidth: 17, minHeight: 17)
-                                .background(.white.opacity(0.7), in: Circle())
-                        }
-                        Image(systemName: "pencil")
-                            .font(.system(size: 9, weight: .semibold))
-                    }
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(AppTheme.violet)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(AppTheme.lavender, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(model.speakerIDs.isEmpty)
-                .opacity(model.speakerIDs.isEmpty ? 0.55 : 1)
-                .help(model.speakerIDs.isEmpty ? "화자가 감지되면 이름을 입력할 수 있습니다." : "현재 대화의 화자 이름 입력 또는 수정")
-                .popover(isPresented: $showingSpeakerNames, arrowEdge: .top) {
-                    SpeakerNamesEditor(model: model, preferredSpeaker: preferredSpeaker) {
-                        showingSpeakerNames = false
-                    }
-                    .id(speakerEditorID)
-                }
-                .padding(.top, 4)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("전사록")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(ink)
+                transcriptSettings
             }
-            .padding(.horizontal, 32)
-            .padding(.top, 30)
-            .padding(.bottom, 18)
+            .padding(.horizontal, transcriptInset)
+            .padding(.top, 22)
+            .padding(.bottom, 16)
 
+            transcriptContent
+        }
+    }
+
+    private var transcriptSettings: some View {
+        HStack(spacing: 6) {
+            Button {
+                showingSpeakerNames = false
+                showingContextEditor = false
+                cloudSettingsID = UUID()
+                showingCloudSettings = true
+            } label: {
+                Label("인식 엔진", systemImage: model.usesGemini ? "cloud" : "desktopcomputer")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(AppTheme.violet)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(AppTheme.lavender, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("NVIDIA, Qwen, Gemini 중 음성 인식 엔진을 선택합니다.")
+            .accessibilityLabel("인식 엔진 설정")
+            .accessibilityValue(model.recognitionProvider.title)
+            .popover(isPresented: $showingCloudSettings, arrowEdge: .top) {
+                CloudSettingsView(model: model) { showingCloudSettings = false }
+                    .id(cloudSettingsID)
+            }
+            .padding(.top, 4)
+            Button(action: openAISettings) {
+                HStack(spacing: 7) {
+                    Image(systemName: "text.badge.checkmark")
+                    Text("AI 설정")
+                    Circle()
+                        .fill(model.codexSettings.mode != .off ? AppTheme.violet : muted.opacity(0.4))
+                        .frame(width: 6, height: 6)
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(AppTheme.violet)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(AppTheme.lavender, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("AI CLI 선택, 모델·연결·문맥 교정을 설정합니다.")
+            .accessibilityLabel("AI CLI 설정")
+            .accessibilityValue(model.codexSettings.provider.title + " · " + model.codexSettings.mode.title)
+            .padding(.top, 4)
+            Button {
+                editSpeakerNames()
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "person.2.fill")
+                    Text("화자 이름")
+                    if !model.speakerIDs.isEmpty {
+                        Text("\(model.speakerIDs.count)")
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .frame(minWidth: 17, minHeight: 17)
+                            .background(.white.opacity(0.7), in: Circle())
+                    }
+                    Image(systemName: "pencil")
+                        .font(.system(size: 9, weight: .semibold))
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(AppTheme.violet)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(AppTheme.lavender, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(model.speakerIDs.isEmpty)
+            .opacity(model.speakerIDs.isEmpty ? 0.55 : 1)
+            .help(model.speakerIDs.isEmpty ? "화자가 감지되면 이름을 입력할 수 있습니다." : "현재 대화의 화자 이름 입력 또는 수정")
+            .popover(isPresented: $showingSpeakerNames, arrowEdge: .top) {
+                SpeakerNamesEditor(model: model, preferredSpeaker: preferredSpeaker) {
+                    showingSpeakerNames = false
+                }
+                .id(speakerEditorID)
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private var transcriptContent: some View {
+        Group {
             if model.isReprocessing || (!model.isBusy && model.meeting.canGenerate) {
                 VStack(alignment: .leading, spacing: 9) {
                     Label(model.isReprocessing ? "지난 회의 재가공본 · 원본 보관" : "전사 저장 완료 · 회의록", systemImage: "doc.on.doc")
@@ -559,7 +581,7 @@ struct ContentView: View {
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(AppTheme.lavender.opacity(0.7), in: RoundedRectangle(cornerRadius: 12))
-                .padding(.horizontal, 32)
+                .padding(.horizontal, transcriptInset)
                 .padding(.bottom, 16)
             }
 
@@ -579,10 +601,10 @@ struct ContentView: View {
                 Spacer(minLength: 0)
             }
             .foregroundStyle(muted)
-            .padding(.horizontal, 32)
+            .padding(.horizontal, transcriptInset)
             .padding(.bottom, 20)
 
-            HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 8) {
                         Text(model.sessionTitle)
@@ -606,46 +628,51 @@ struct ContentView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(muted)
                 }
-                Spacer(minLength: 12)
-                if model.canStop && !model.processingFile {
-                    Button {
-                        model.materials.pickFiles(provider: model.meeting.provider, settings: model.codexSettings)
-                    } label: {
-                        Label("자료 첨부", systemImage: "paperclip")
+                HStack(spacing: 6) {
+                    if model.canStop && !model.processingFile {
+                        Button {
+                            model.materials.pickFiles(provider: model.meeting.provider, settings: model.codexSettings)
+                        } label: {
+                            Label("자료 첨부", systemImage: "paperclip")
+                        }
+                        .help("녹음을 이어가면서 이번 회의에 자료를 추가합니다.")
                     }
-                    .help("녹음을 이어가면서 이번 회의에 자료를 추가합니다.")
+                    Button {
+                        model.copyTranscript()
+                        copied = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copied = false }
+                    } label: {
+                        Label(copied ? "복사 완료" : "복사", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    }
+                    .disabled(!model.canExport)
+                    .help("화자와 시간을 포함한 전사 내용 복사")
+                    Button(action: model.saveJSON) {
+                        Label("JSON 저장", systemImage: "square.and.arrow.down")
+                    }
+                    .disabled(!model.canExport)
+                    .keyboardShortcut("s", modifiers: [.command])
                 }
-                Button {
-                    model.copyTranscript()
-                    copied = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copied = false }
-                } label: {
-                    Label(copied ? "복사 완료" : "복사", systemImage: copied ? "checkmark" : "doc.on.doc")
-                }
-                .disabled(!model.canExport)
-                .help("화자와 시간을 포함한 전사 내용 복사")
-                Button(action: model.saveJSON) {
-                    Label("JSON 저장", systemImage: "square.and.arrow.down")
-                }
-                .disabled(!model.canExport)
-                .keyboardShortcut("s", modifiers: [.command])
             }
             .buttonStyle(.bordered)
             .controlSize(.regular)
-            .padding(.horizontal, 32)
+            .padding(.horizontal, transcriptInset)
             .padding(.bottom, 20)
 
             if let error = model.errorMessage {
                 errorBanner(error)
-                    .padding(.horizontal, 32)
+                    .padding(.horizontal, transcriptInset)
                     .padding(.bottom, 18)
             }
 
             Rectangle().fill(ink.opacity(0.08)).frame(height: 1)
-                .padding(.horizontal, 32)
+                .padding(.horizontal, transcriptInset)
 
             if model.meeting.mode == .lecture && !lectureTranscript {
                 LectureDashboard(assistant:model.assistant, openInput:{ openWindow(id:"lecture-input") }, showTranscript:{ lectureTranscript=true })
+            } else if model.processingFile && (!model.segments.isEmpty || !model.liveText.isEmpty) {
+                FileTranscriptPreview(text: fileTranscriptText, followLatest: shouldFollowTranscript,
+                                      jump: latestTranscriptJump, onScroll: { transcriptAtBottom = $0 })
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if model.segments.isEmpty && model.liveText.isEmpty {
                 emptyState
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -657,6 +684,11 @@ struct ContentView: View {
                 Button("강의 흐름으로 돌아가기") { lectureTranscript=false }.padding(.horizontal,32).padding(.top,8)
             }
             HStack(spacing: 8) {
+                if followLatest && !transcriptAtBottom {
+                    Button(action: jumpToLatestTranscript) {
+                        Label("최신 발언으로", systemImage: "arrow.down")
+                    }.controlSize(.small)
+                }
                 Image(systemName: "sparkle")
                     .foregroundStyle(AppTheme.rose)
                 Text(model.usesQwen ? "녹음이 끝나면 Qwen 전사가 반영됩니다." :
@@ -671,10 +703,29 @@ struct ContentView: View {
                     .foregroundStyle(muted)
                     .controlSize(.small)
             }
-            .padding(.horizontal, 32)
+            .padding(.horizontal, transcriptInset)
             .padding(.vertical, 17)
             .background(paper)
         }
+    }
+
+    private func jumpToLatestTranscript() {
+        transcriptAtBottom = true
+        scrollingTranscript = false
+        latestTranscriptJump += 1
+    }
+
+    private func isNearTranscriptBottom(_ geometry: ScrollGeometry) -> Bool {
+        geometry.contentSize.height + geometry.contentInsets.bottom - geometry.visibleRect.maxY <= 24
+    }
+
+    private var fileTranscriptText: String {
+        if model.segments.isEmpty { return TranscriptPresentation.format(model.liveText) }
+        return model.conversationTurns.map { turn in
+            let name = model.speakerName(for: turn.speaker)
+            let text = TranscriptPresentation.format(model.displayedText(for: turn))
+            return "\(AppModel.time(turn.start))  \(name)\n\(text)"
+        }.joined(separator: "\n\n")
     }
 
     private var transcript: some View {
@@ -731,15 +782,25 @@ struct ContentView: View {
                 .padding(.top, 22)
                 .padding(.bottom, 8)
             }
-            .onChange(of: model.segments) { _, _ in
-                if followLatest && !showingSpeakerNames && !showingContextEditor && !showingCloudSettings && !showingComparison && !showingSpeakerReview { proxy.scrollTo("latest-transcript", anchor: .bottom) }
+            .defaultScrollAnchor(shouldFollowTranscript ? .bottom : nil, for: .initialOffset)
+            .defaultScrollAnchor(shouldFollowTranscript ? .bottom : nil, for: .sizeChanges)
+            .onScrollPhaseChange { _, phase, context in
+                let userScrolling = phase == .tracking || phase == .interacting || phase == .decelerating
+                if scrollingTranscript && !userScrolling {
+                    transcriptAtBottom = isNearTranscriptBottom(context.geometry)
+                }
+                scrollingTranscript = userScrolling
             }
-            .onChange(of: model.liveText) { _, _ in
-                if followLatest && !showingSpeakerNames && !showingContextEditor && !showingCloudSettings && !showingComparison && !showingSpeakerReview { proxy.scrollTo("latest-transcript", anchor: .bottom) }
+            .onScrollGeometryChange(for: ScrollGeometry.self, of: { $0 }) { old, new in
+                guard old.contentOffset.y != new.contentOffset.y,
+                      scrollingTranscript || (old.contentSize == new.contentSize && old.containerSize == new.containerSize
+                          && old.contentInsets == new.contentInsets) else { return }
+                transcriptAtBottom = isNearTranscriptBottom(new)
             }
-            .onChange(of: followLatest) { _, enabled in
-                if enabled { proxy.scrollTo("latest-transcript", anchor: .bottom) }
+            .onChange(of: latestTranscriptJump) { _, _ in
+                proxy.scrollTo("latest-transcript", anchor: .bottom)
             }
+            .onDisappear { scrollingTranscript = false }
         }
     }
 
@@ -865,6 +926,90 @@ struct ContentView: View {
     }
 }
 
+/// AppKit lays out the growing transcript inside the scroll view, independently
+/// of the surrounding SwiftUI controls. The full editor is available after import.
+private struct FileTranscriptPreview: NSViewRepresentable {
+    let text: String
+    let followLatest: Bool
+    let jump: Int
+    let onScroll: (Bool) -> Void
+
+    final class Coordinator: NSObject {
+        var followedLatest = false
+        var atBottom = true
+        var isUpdating = false
+        var jump = 0
+        var previousBounds: CGRect?
+        var onScroll: ((Bool) -> Void)?
+
+        @objc func boundsChanged(_ notification: Notification) {
+            guard !isUpdating, let clip = notification.object as? NSClipView,
+                  let scroll = clip.enclosingScrollView, let document = scroll.documentView else { return }
+            let previous = previousBounds
+            previousBounds = clip.bounds
+            guard let previous, previous.size == clip.bounds.size, previous.minY != clip.bounds.minY else { return }
+            let nearBottom = document.bounds.maxY - scroll.documentVisibleRect.maxY <= 24
+            guard nearBottom != atBottom else { return }
+            atBottom = nearBottom
+            onScroll?(nearBottom)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = NSTextView.scrollableTextView()
+        scroll.drawsBackground = false
+        if let document = scroll.documentView as? NSTextView {
+            document.isEditable = false
+            document.isRichText = false
+            document.drawsBackground = false
+            document.font = .systemFont(ofSize: 14)
+            document.textContainerInset = NSSize(width: 22, height: 18)
+        }
+        scroll.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.boundsChanged(_:)),
+                                               name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        return scroll
+    }
+
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        guard let document = scroll.documentView as? NSTextView else { return }
+        let coordinator = context.coordinator
+        coordinator.onScroll = onScroll
+        coordinator.isUpdating = true
+        defer {
+            coordinator.previousBounds = scroll.contentView.bounds
+            coordinator.isUpdating = false
+        }
+        let changed = document.string != text
+        let jumped = coordinator.jump != jump
+        let shouldScroll = followLatest && (jumped || (coordinator.atBottom && (changed || !coordinator.followedLatest)))
+        coordinator.jump = jump
+        coordinator.followedLatest = followLatest
+        if changed {
+            let origin = scroll.contentView.bounds.origin
+            let selection = document.selectedRange()
+            document.string = text
+            if NSMaxRange(selection) <= text.utf16.count {
+                document.setSelectedRange(selection)
+            }
+            if !shouldScroll {
+                scroll.contentView.scroll(to: origin)
+                scroll.reflectScrolledClipView(scroll.contentView)
+            }
+        }
+        if shouldScroll {
+            document.scrollRangeToVisible(NSRange(location: text.utf16.count, length: 0))
+            coordinator.atBottom = true
+        }
+    }
+
+    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
+        NotificationCenter.default.removeObserver(coordinator, name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+    }
+}
+
 private struct TranscriptCard: View {
     let speaker: Int
     let speakerName: String
@@ -897,14 +1042,11 @@ private struct TranscriptCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) { identity; Spacer(minLength: 8); actions }
-                VStack(alignment: .leading, spacing: 6) {
-                    identity
-                    HStack { Spacer(); actions }
-                }
+            VStack(alignment: .leading, spacing: 6) {
+                identity
+                HStack { Spacer(); actions }
             }
-            Text(text)
+            Text(TranscriptPresentation.format(text))
                 .font(.system(size: 15)).lineSpacing(5)
                 .foregroundStyle(AppTheme.ink).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -959,7 +1101,7 @@ private struct TranscriptCard: View {
                             .padding(16).frame(width: 310)
                     }
             }
-        }.foregroundStyle(accent).fixedSize(horizontal: true, vertical: false)
+        }.foregroundStyle(accent)
     }
     private var timestamp: some View {
         Text("\(AppModel.time(start))–\(AppModel.time(end))")

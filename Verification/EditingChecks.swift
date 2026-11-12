@@ -29,6 +29,8 @@ final class ControlledMicrophone: MicrophoneCapturing {
         try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
         let defaults=UserDefaults(suiteName:"local.TableLog.Verification."+UUID().uuidString)!
         defaults.set(false,forKey:"assistant.enabled");defaults.set(false,forKey:"minutes.automatic")
+        let testingFile = CommandLine.arguments.contains("--test-file")
+        if testingFile { defaults.set(false, forKey: "minutes.onFinish") }
         var settings=CodexCorrectionSettings();settings.mode = .off
         defaults.set(try JSONEncoder().encode(settings),forKey:"codexCorrection.v1")
         let minutes=MeetingWorkspace(directory:root.appendingPathComponent("Minutes"),defaults:defaults)
@@ -44,10 +46,11 @@ final class ControlledMicrophone: MicrophoneCapturing {
         let previewMicrophone = ControlledMicrophone()
         previewMicrophone.automaticallyDrain = true
         let model=AppModel(materials:materials,meeting:minutes,
-            assistant:MeetingAssistant(directory:root.appendingPathComponent("Assistant"),defaults:defaults),loadEngine:false,
+            assistant:MeetingAssistant(directory:root.appendingPathComponent("Assistant"),defaults:defaults),loadEngine:testingFile,
             voice:VoiceIdentity(root:root.appendingPathComponent("Voice")),
             history:MeetingHistoryStore(transcripts:root.appendingPathComponent("Transcripts"),minutes:root.appendingPathComponent("Minutes")),
             transcriptDirectory:root.appendingPathComponent("Transcripts"),startBackgroundServices:false,preferences:defaults,microphone:previewMicrophone)
+        if testingFile { showPreview(model, exerciseFileImport: true); return }
         model.loadEditingFixture()
         if CommandLine.arguments.contains("--preview-recording") {
             try model.loadRecordingFixture(directory: root.appendingPathComponent("PreviewAudio"))
@@ -62,6 +65,38 @@ final class ControlledMicrophone: MicrophoneCapturing {
         func plan(_ doc:EditingDocument,_ text:String?=nil,speaker:Int = -1)->EditingPlan {
             EditingPlan(answer:"수정안입니다.",changes:[.init(targetID:doc.id,before:doc.text,after:text ?? doc.text,speaker:speaker)])
         }
+        var deliveredProgress: [Double] = []
+        var deliveredRevisions: [Int] = []
+        let updates = EngineWorker.FileUpdates(onProgress: { deliveredProgress.append($0.processedSeconds) },
+                                               onSnapshot: { deliveredRevisions.append($0.revision) })
+        for revision in 1...100 {
+            updates.publish(progress: .init(stage: .transcribing, processedSeconds: Double(revision), totalSeconds: 100),
+                            snapshot: .init(revision: revision, audioSeconds: Double(revision), processedSeconds: Double(revision),
+                                            isFinal: false, text: "", words: [], segments: [], speakerActivity: nil))
+        }
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        check(deliveredProgress == [100] && deliveredRevisions == [100], "a stalled UI receives only the latest pending file update")
+        let sentence = "이번 회의에서는 연구비 집행 일정과 사업단별 담당 업무를 검토하고 다음 회의까지 제출할 자료의 범위를 확정했습니다."
+        let closingSentence = "다음 버전은 2.9.0으로 정했습니다."
+        let firstParagraph = Array(repeating: sentence, count: 2).joined(separator: " ")
+        let longTurn = firstParagraph + " " + closingSentence
+        check(TranscriptParagraphs.format(longTurn) == firstParagraph + "\n\n" + closingSentence,
+              "long Korean turns break between sentences and preserve version numbers")
+        let existingLines = closingSentence + "\n\n" + longTurn
+        check(TranscriptParagraphs.format(existingLines) == closingSentence + "\n\n" + firstParagraph + "\n\n" + closingSentence,
+              "existing paragraph breaks and short lines are preserved")
+        let noPunctuation = Array(repeating: "회의 자료를 다음 주에 공유하고 일정은 추후 확정합니다", count: 12).joined(separator: " ")
+        let formatted = TranscriptParagraphs.format(noPunctuation)
+        check(formatted.contains("\n\n") && formatted.replacingOccurrences(of: "\n\n", with: " ") == noPunctuation,
+              "long unpunctuated speech breaks at whitespace without changing words")
+        check(TranscriptPresentation.format("오십만 원, 삼천오백만원, 오십만이 넘고 이천이십육년 에이 아이와 지 피 유를 씁니다.")
+                == "50만 원, 3,500만원, 50만이 넘고 2026년 AI와 GPU를 씁니다.",
+              "Korean numbers and spelled-out acronyms normalize without dropping particles")
+        let ordinaryWords = "이 회의에서 삼성과 오십견, 케이에이아이랩, 버전 2.9.0을 확인했습니다."
+        check(TranscriptPresentation.format(ordinaryWords) == ordinaryWords,
+              "ordinary words, company names and existing numeric spellings are preserved")
         let legacy=Data(#"{"mode":"codex","model":"old-model","effort":"low","batchSeconds":20,"executablePath":"/legacy/codex"}"#.utf8)
         var profiles=try JSONDecoder().decode(CodexCorrectionSettings.self,from:legacy)
         check(profiles.provider == .codex && profiles.model=="old-model","legacy CLI settings restored")
@@ -483,6 +518,58 @@ final class ControlledMicrophone: MicrophoneCapturing {
         microphone.drain()
         for _ in 0..<200 where !quitFinished { try await Task.sleep(for: .milliseconds(10)) }
         check(quitFinished, "quit from pause drains and releases engine resources")
+
+        let bulkRequest = "다음을 모두 반영. 전사록 및 회의록 : 회의제목: 11월 12일 테스트 회의, 교정: 1) Sample Device -> 예시장치, 2) 검증명가? -> 검증명나  3) 기록담당가 -> 기록담당나  4) 예시연구실 -> 검증연구실 5) 가상전자 =>샘플전자"
+        let terms = "Sample Device, 검증명가?, 검증명가, 기록담당가, 예시연구실, 가상전자."
+        let corrected = "예시장치, 검증명나, 검증명나, 기록담당나, 검증연구실, 샘플전자."
+        let oldMinutes = "# AI 회의\n\n- " + terms
+        let savedSegments = (1...320).map { i in
+            MeetingUtterance(id:i,speaker:1,start:Double(i-1)*12,end:Double(i)*12,
+                             text:terms + " " + String(repeating:"기존 발언을 보존합니다. ",count:32))
+        }
+        let savedMeeting=MeetingHistorySnapshot(id:UUID(),title:"AI 회의",date:Date(),duration:3840,segments:savedSegments,
+            names:[1:"기록담당가"],materials:materials.context,record:nil,markdown:oldMinutes,
+            audioURL:nil,transcriptURL:nil,recordURL:nil,diagnosticsURL:nil,comparisonURL:nil,minutesURL:nil,
+            context:ContextSettings(),assistantState:nil,warnings:[])
+        check(model.openHistoryForReprocessing(savedMeeting),"saved meeting opens for batch correction")
+        check(minutes.preview==oldMinutes && minutes.lastURL != nil,"saved minutes copied into reprocessing workspace")
+        check(model.editingSnapshot().focused(on:bulkRequest).omittedCount>0,"fixture exceeds the AI context window")
+        model.editingChat.send(bulkRequest)
+        let bulkEntry=model.editingChat.entries.last!
+        check(bulkEntry.status=="ready" && bulkEntry.snapshot==nil && bulkEntry.bulkPreview?.utterances==320,
+              "the example routes locally over the full transcript")
+        check(bulkEntry.bulkPreview?.rules.map(\.transcript)==[320,640,320,320,320],
+              "all rules are counted including question-mark variants")
+        check(bulkEntry.bulkPreview?.rules.map(\.minutes)==[1,2,1,1,1] && bulkEntry.bulkPreview?.rules[2].speakers==1,
+              "minutes and saved speaker names are counted separately")
+        let updatedMinutes = oldMinutes + "\n- 회의록을 갱신했습니다. 가상전자"
+        _=try minutes.applyChatDraft(updatedMinutes,expected:oldMinutes)
+        model.editingChat.apply(bulkEntry.id)
+        let applied=model.editingChat.entries.last!
+        check(applied.status=="applied" && applied.bulkPreview?.rules[4].minutes==2,"apply uses current records and reports updated counts")
+        let correctedSegments=model.visibleSegments
+        check(correctedSegments.count==320 && correctedSegments.allSatisfy{model.displayedText(for:$0).hasPrefix(corrected)},
+              "all 320 utterances corrected, beyond AI plan limits")
+        check(correctedSegments.last?.endTime==3840 && model.speakerName(for:1)=="기록담당나",
+              "transcript timestamps preserved and speaker name corrected")
+        check(model.sessionTitle=="11월 12일 테스트 회의" &&
+              minutes.preview=="# 11월 12일 테스트 회의\n\n- "+corrected+"\n- 회의록을 갱신했습니다. 샘플전자",
+              "title and latest minutes corrected without overwriting unrelated changes")
+        let persistedBulk=try JSONSerialization.jsonObject(with:Data(contentsOf:model.lastSavedURL!)) as? [String:Any]
+        let persistedSpeech=persistedBulk?["segments"] as? [[String:Any]]
+        check(persistedBulk?["title"] as? String==model.sessionTitle && (persistedSpeech?.last?["text"] as? String)?.hasPrefix(corrected)==true,
+              "full batch and title saved in transcript JSON")
+        check(try String(contentsOf:applied.outputURL!,encoding:.utf8)==minutes.preview,"bulk minutes file saved")
+        model.editingChat.undo(bulkEntry.id)
+        check(model.editingChat.entries.last?.status=="undone" && minutes.preview==updatedMinutes &&
+              model.sessionTitle=="AI 회의 · 재가공" && model.speakerName(for:1)=="기록담당가" &&
+              model.visibleSegments.last.map{model.displayedText(for:$0).hasPrefix(terms)}==true,"one undo restores all changed records")
+        let rules = MeetingBulkCorrection.parse("전사록 교정:\n- A → B\n- B → C")!
+        let isolated = EditingSnapshot(sessionID:UUID(),documents:[
+            .init(id:"t",kind:.transcript,title:"전사록",text:"A B"),
+            .init(id:"m",kind:.minutes,title:"회의록",text:"A B")])
+        check(try rules.evaluate(in:isolated).changes.map(\.after)==["B C"],"literal replacement runs once and respects selected scope")
+        check(MeetingBulkCorrection.parse("회의록에서 A → B로 바꿨나요?")==nil,"ordinary question remains an AI request")
         print("RESULT: \(passed) checks passed")
         if CommandLine.arguments.contains("--live-materials") {
             var liveSettings=CodexCorrectionSettings();liveSettings.selectProvider(.codex)
@@ -521,13 +608,23 @@ final class ControlledMicrophone: MicrophoneCapturing {
             print("LIVE RESULT: \(passed) checks passed")
         }
     }
-    @MainActor static func showPreview(_ model:AppModel) {
+    @MainActor static func showPreview(_ model:AppModel, exerciseFileImport: Bool = false) {
         let app=NSApplication.shared
-        app.setActivationPolicy(.regular)
+        app.setActivationPolicy(exerciseFileImport ? .accessory : .regular)
         let window=NSWindow(contentRect:NSRect(x:100,y:100,width:1440,height:850),styleMask:[.titled,.closable,.resizable],backing:.buffered,defer:false)
         window.title="테이블로그 편집 UI 미리보기 · 예시 데이터"
-        window.contentView=NSHostingView(rootView:ContentView(model:model))
-        window.makeKeyAndOrderFront(nil);app.activate(ignoringOtherApps:true)
+        if exerciseFileImport {
+            let uiDefaults = UserDefaults(suiteName: "local.TableLog.FilePreview." + UUID().uuidString)!
+            uiDefaults.set(true, forKey: "assistant.panel.visible")
+            window.contentView = NSHostingView(rootView: ContentView(model: model).defaultAppStorage(uiDefaults))
+            Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak model] _ in
+                MainActor.assumeIsolated { model?.runPeriodicTasks() }
+            }
+            window.orderBack(nil)
+        } else {
+            window.contentView=NSHostingView(rootView:ContentView(model:model))
+            window.makeKeyAndOrderFront(nil);app.activate(ignoringOtherApps:true)
+        }
         app.run()
     }
 }

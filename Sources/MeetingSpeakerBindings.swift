@@ -1,6 +1,6 @@
 import Foundation
 
-public struct MeetingSpeakerBindings: Codable {
+public struct MeetingSpeakerBindings: Codable, Equatable {
     public let sessionID: UUID
     public private(set) var speakers: [Int: MeetingPerson] = [:]
     public private(set) var confirmedParticipants: [MeetingPerson] = []

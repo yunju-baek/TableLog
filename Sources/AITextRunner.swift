@@ -24,10 +24,20 @@ enum AITextRunner {
     static func installationStatus(_ settings: CodexCorrectionSettings) async throws -> String {
         if settings.provider == .codex { return try await CodexCorrector.loginStatus(settings:settings) }
         let directory=try CodexCorrector.jobDirectory();defer { try? FileManager.default.removeItem(at:directory) }
+        if settings.provider == .claude {
+            let result = try await CodexProcess().run(executable: executable(settings),
+                arguments: ["auth", "status", "--json"], directory: directory, timeout: 15)
+            if let status = try? JSONDecoder().decode(ClaudeAuthStatus.self, from: Data(result.stdout.utf8)) {
+                guard result.code == 0, status.loggedIn else { throw CodexFailure(kind: .login) }
+                return "Claude Code 인증 연결됨"
+            }
+            throw CodexFailure(kind: .process)
+        }
         let result=try await CodexProcess().run(executable:executable(settings),arguments:["--version"],directory:directory,timeout:15)
         guard result.code==0 else { throw CodexFailure.classify(result.stderr+result.stdout) }
         return settings.provider.title+" 설치 확인 · "+String(result.stdout.trimmingCharacters(in:.whitespacesAndNewlines).prefix(100))+" · 연결 테스트로 인증을 확인하세요."
     }
+    private struct ClaudeAuthStatus: Decodable { let loggedIn: Bool }
     static func connectionTest(_ settings: CodexCorrectionSettings) async throws -> String {
         let directory=try CodexCorrector.jobDirectory();defer { try? FileManager.default.removeItem(at:directory) }
         let schema=directory.appendingPathComponent("schema.json"),output=directory.appendingPathComponent("response.json")

@@ -160,7 +160,7 @@ struct MeetingWorkRecord: Codable {
         editedPreview=try? String(contentsOf:draft,encoding:.utf8)
         editedURL=editedPreview == nil ? nil : draft;editedRevision=UUID()
     }
-    @discardableResult func openReprocessing(record source: MeetingWorkRecord) -> Bool {
+    @discardableResult func openReprocessing(record source: MeetingWorkRecord, minutes: String = "") -> Bool {
         // A caller supplies a fresh identity and remapped participant bindings for the new work.
         guard source.bindings.sessionID==source.id else {
             error="새 회의 식별자에 맞춰 참석자 연결을 준비해 주세요."
@@ -171,11 +171,22 @@ struct MeetingWorkRecord: Codable {
             error="다시 처리할 회의는 새 식별자로 준비해 주세요. 기존 회의는 기록에서 확인할 수 있습니다."
             return false
         }
+        let copyURL = directory.appendingPathComponent(source.id.uuidString + ".md")
+        let hasMinutes = !minutes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if hasMinutes {
+            do {
+                try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
+                try Data(minutes.utf8).write(to:copyURL,options:.withoutOverwriting)
+            } catch {
+                self.error="회의록 사본 저장 실패 · " + error.localizedDescription
+                return false
+            }
+        }
         begin(id:source.id)
         manualOnlySessions.insert(source.id)
         var record=source
         record.template = record.template.minutesOnly
-        record.revision=1;record.savedRevision = -1;record.output=nil;record.error=nil
+        record.revision=1;record.savedRevision = hasMinutes ? 1 : -1;record.output=hasMinutes ? copyURL.path : nil;record.error=nil
         record.editedOutput=nil
         record.ended=true;record.assistantAppendix="";record.updatedAt=Date()
         bindings=record.bindings;purpose=record.purpose;provider=record.provider;mode=record.mode ?? .meeting;lectureNotes=record.lectureNotes ?? []
@@ -184,7 +195,12 @@ struct MeetingWorkRecord: Codable {
         records[record.id]=record;signatures.removeValue(forKey:record.id)
         lastAttempt[record.id]=Date();lastTick = .distantPast
         persist(record.id)
-        status="전사 편집 후 ‘회의록 생성’으로 결과를 저장하세요."
+        if hasMinutes {
+            generatedPreview=minutes;generatedURL=copyURL
+            status="저장된 전사록과 회의록을 불러왔습니다."
+        } else {
+            status="전사 편집 후 ‘회의록 생성’으로 결과를 저장하세요."
+        }
         return true
     }
     func bind(_ person:MeetingPerson,speaker:Int) { bindings.bind(person,to:speaker) }
@@ -254,7 +270,7 @@ struct MeetingWorkRecord: Codable {
         // Advance the write barrier while preserving the previous completed document.
         transcriptSaveTask=Task {
             await store.requireRevision(record.revision,for:id)
-            if sessionID==id, records[id]?.revision==record.revision {
+            if sessionID==id, records[id]?.revision==record.revision, !isShowingEditedDraft {
                 status=record.segments.isEmpty ? "모든 발언 삭제 · 전사 저장 완료" : "편집된 전사문 저장 · 회의록 갱신 대기"
             }
             if shouldAutomaticallyGenerate(record) { enqueue(id) }

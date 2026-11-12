@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ContextEditorView: View {
@@ -7,7 +8,7 @@ struct ContextEditorView: View {
     @State private var topic: String
     @State private var terms: String
     @State private var options = CodexModelOption.cached()
-    @State private var connectionMessage = "CLI를 선택한 뒤 설치 확인과 연결 테스트를 진행하세요."
+    @State private var connectionMessage = "사용할 CLI를 선택하고 개인 계정을 연결하세요."
     @State private var checking = false
     @State private var checkID = UUID()
     @State private var checkTask: Task<Void,Never>?
@@ -23,7 +24,7 @@ struct ContextEditorView: View {
     var body: some View {
         VStack(alignment:.leading,spacing:14) {
             HStack {
-                Text("AI CLI · 교정 설정").font(.title3.bold())
+                Text("개인 AI 계정 · 교정 설정").font(.title3.bold())
                 Spacer()
                 Button(action:AppHelp.openCLISetup) { Image(systemName:"questionmark.circle") }
                     .help("AI CLI 연결 안내").accessibilityLabel("AI CLI 연결 안내")
@@ -32,29 +33,33 @@ struct ContextEditorView: View {
                 VStack(alignment:.leading,spacing:12) {
                     Picker("AI CLI",selection:Binding(get:{settings.provider},set:{value in
                         checkTask?.cancel();checkID=UUID();checking=false;settings.selectProvider(value)
-                        connectionMessage="설치 확인 또는 연결 테스트를 실행하세요."
+                        connectionMessage="이 CLI에 사용할 개인 계정의 연결 상태를 확인하세요."
                     })) {
-                        ForEach(AITextProvider.allCases) { Text($0.title).tag($0) }
+                        ForEach(AITextProvider.allCases) { Text($0 == .codex ? "ChatGPT · Codex" : $0.title).tag($0) }
                     }.pickerStyle(.segmented).accessibilityLabel("사용할 AI CLI")
                     Text("편집 채팅·문맥 교정·회의 요약·회의록·자료 분석·화자 검토에 적용합니다. 요청에 필요한 발언과 자료를 \(settings.provider.destination)로 전달하며, 해당 CLI 계정의 사용 조건과 한도가 적용됩니다.")
                         .font(.caption).foregroundStyle(.secondary)
                     TextField("실행 파일 경로 · 비우면 자동 탐색",text:$settings.executablePath)
                         .textFieldStyle(.roundedBorder).accessibilityLabel("AI CLI 실행 파일 경로")
                     HStack {
-                        Button("설치 확인") { check(connection:false) }.disabled(checking)
-                        Button("연결 테스트") { check(connection:true) }.disabled(checking)
-                        if checking { ProgressView().controlSize(.small);Button("중단") { checkTask?.cancel() } }
-                    }
-                    Text(connectionMessage).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                    HStack {
-                        Text("터미널 로그인: \(settings.provider.loginCommand)").font(.caption2).textSelection(.enabled)
-                        Spacer()
                         if settings.provider == .codex {
                             Button(model.codexLoginRunning ? "로그인 대기 중" : "ChatGPT 로그인") { model.loginCodex(settings:settings) }
-                                .disabled(model.codexLoginRunning)
+                                .disabled(model.codexLoginRunning || checking)
+                        } else {
+                            Button("터미널 로그인 명령 복사", action: copyLoginCommand)
+                                .disabled(model.codexLoginRunning || checking)
                         }
+                        Button(settings.provider == .gemini ? "설치 확인" : "인증 확인") { check(connection:false) }
+                            .disabled(checking || model.codexLoginRunning)
+                        Button("연결 테스트") { check(connection:true) }.disabled(checking || model.codexLoginRunning)
+                        if checking { ProgressView().controlSize(.small);Button("중단") { checkTask?.cancel() } }
                     }
-                    if model.codexLoginRunning { Text(model.codexAuthStatus).font(.caption);Button("로그인 취소",action:model.cancelCodexLogin) }
+                    if settings.provider != .codex {
+                        Text("공식 CLI에 로그인한 뒤 연결 테스트를 실행하세요. Claude Code는 인증 확인도 지원합니다.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Text(connectionMessage).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    if model.codexLoginRunning { Button("로그인 취소",action:model.cancelCodexLogin) }
                     if settings.provider == .codex {
                         Picker("모델",selection:$settings.model) {
                             Text("CLI 기본 모델").tag("")
@@ -98,6 +103,21 @@ struct ContextEditorView: View {
             }
         }.padding(22).frame(width:530,height:690).environment(\.colorScheme,.light)
             .onDisappear { checkTask?.cancel() }
+            .onChange(of: model.codexAuthStatus) { _, status in
+                if settings.provider == .codex && !checking { connectionMessage = status }
+            }
+    }
+    private func copyLoginCommand() {
+        let command: String
+        if let path = try? AITextRunner.executable(settings).path {
+            let quotedPath = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+            command = quotedPath + (settings.provider == .claude ? " auth login" : "")
+        } else {
+            command = settings.provider.loginCommand
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command, forType: .string)
+        connectionMessage = "복사한 명령을 터미널에서 실행한 뒤 연결 테스트를 눌러 주세요."
     }
     private func check(connection:Bool) {
         guard !checking else { return }

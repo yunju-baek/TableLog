@@ -12,6 +12,9 @@ import UniformTypeIdentifiers
         commit: { [weak self] plan,capture in
             guard let self else { throw EditingError.unavailable }
             return try self.applyEditingPlan(plan,capture:capture)
+        }, commitBulk: { [weak self] result,capture in
+            guard let self else { throw EditingError.unavailable }
+            return try self.applyBulkCorrection(result,capture:capture)
         })
     var editingSessionID: UUID { session }
     let history: MeetingHistoryStore
@@ -170,26 +173,27 @@ import UniformTypeIdentifiers
     }
 
     func setSpeakerName(_ name: String, for speaker: Int) {
-        guard !closing, speakerIDs.contains(speaker), (1...8).contains(speaker) else { return }
+        let previous = enteredSpeakerName(for: speaker)
+        guard updateSpeakerName(name, for: speaker) else { return }
+        if previous != enteredSpeakerName(for: speaker) { voice.unbindConfirmedSpeaker(speaker: speaker) }
+        debugRecorder?.recordSpeakerNames(speakerNames)
+        syncMeetingMinutes(force:true)
+        do { try saveCurrentTranscript() }
+        catch { errorMessage = "화자 이름 저장 경로를 확인해 주세요. " + error.localizedDescription }
+    }
+
+    @discardableResult
+    private func updateSpeakerName(_ name: String, for speaker: Int) -> Bool {
+        guard !closing, speakerIDs.contains(speaker), (1...8).contains(speaker) else { return false }
         let cleaned = String(name.split(whereSeparator: { $0.isWhitespace || $0.isNewline })
             .joined(separator: " ").prefix(64))
         let wasAutomatic = voiceNameAssignments.automatic[speaker] != nil
         let wasControlled = voiceNameAssignments.userControlled.contains(speaker)
-        if cleaned != enteredSpeakerName(for: speaker) { voice.unbindConfirmedSpeaker(speaker: speaker) }
         voiceNameAssignments.userEdited(speaker)
-        guard cleaned != enteredSpeakerName(for: speaker) || wasAutomatic || !wasControlled else { return }
+        guard cleaned != enteredSpeakerName(for: speaker) || wasAutomatic || !wasControlled else { return false }
         speakerNames[speaker] = cleaned.isEmpty ? nil : cleaned
         if let bound = meeting.bindings.speakers[speaker], bound.name != cleaned { meeting.unbind(speaker: speaker) }
-        debugRecorder?.recordSpeakerNames(speakerNames)
-        syncMeetingMinutes(force: true)
-        // Names belong to this session; inference snapshots only update acoustic labels.
-        if canExport {
-            do {
-                let status = canStop || phase == .finishing ? "in_progress" : finalStatus
-                lastSavedURL = try SessionFiles.write(document(status: status), to: sessionDocumentURL)
-                lastDraftAt = Date()
-            } catch { errorMessage = "화자 이름 저장 경로를 확인해 주세요. " + error.localizedDescription }
-        }
+        return true
     }
 
     init(materials requestedMaterials: MeetingMaterials? = nil, meeting requestedMeeting: MeetingWorkspace? = nil,
@@ -843,8 +847,9 @@ import UniformTypeIdentifiers
     }
 
     func copyTranscript() {
-        let text = segments.isEmpty ? liveText : visibleSegments.map {
-            "[\(Self.time($0.startTime))–\(Self.time($0.endTime))] \(speakerName(for: effectiveSpeaker($0)))\(speakerNames[effectiveSpeaker($0)] == nil ? "" : " (화자 \(effectiveSpeaker($0)))"): \(displayedText(for: $0))"
+        let text = segments.isEmpty ? TranscriptPresentation.format(liveText) : visibleSegments.map {
+            let body = TranscriptPresentation.format(displayedText(for: $0))
+            return "[\(Self.time($0.startTime))–\(Self.time($0.endTime))] \(speakerName(for: effectiveSpeaker($0)))\(speakerNames[effectiveSpeaker($0)] == nil ? "" : " (화자 \(effectiveSpeaker($0)))"): \(body)"
         }.joined(separator: "\n\n")
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
     }
@@ -1003,11 +1008,16 @@ import UniformTypeIdentifiers
         guard canExport || lastSavedURL != nil else { return true }
         syncMeetingMinutes(force: true)
         do {
-            let status = canStop || phase == .finishing ? "in_progress" : finalStatus
-            lastSavedURL = try SessionFiles.write(document(status: status), to: sessionDocumentURL)
-            lastDraftAt = Date()
+            try saveCurrentTranscript()
             return true
         } catch { errorMessage = "전사 저장 경로를 확인해 주세요. " + error.localizedDescription; return false }
+    }
+
+    private func saveCurrentTranscript() throws {
+        guard canExport || lastSavedURL != nil else { return }
+        let status = canStop || phase == .finishing ? "in_progress" : finalStatus
+        lastSavedURL = try SessionFiles.write(document(status: status), to: sessionDocumentURL)
+        lastDraftAt = Date()
     }
 
     private func updateCorrectionStatus(_ status: String) {
@@ -1842,8 +1852,8 @@ extension AppModel {
             template:source?.template ?? meeting.selectedTemplate,bindings:bindings,names:snapshot.names,
             segments:snapshot.segments,ended:true,provider:source?.provider ?? meeting.provider,
             settings:codexSettings,output:nil,error:nil,updatedAt:Date(),materials:materials.context,endedAt:snapshot.endedAt ?? snapshot.date.addingTimeInterval(snapshot.duration))
-        guard meeting.openReprocessing(record:record) else {
-            errorMessage="재가공본의 저장 위치를 확인해 주세요.";return false
+        guard meeting.openReprocessing(record:record,minutes:snapshot.markdown) else {
+            errorMessage=meeting.error ?? "재가공본의 저장 위치를 확인해 주세요.";return false
         }
         startedAt=snapshot.date; endedAt=record.endedAt
         reprocessingOrigin=MeetingReprocessingOrigin(sourceSessionID:snapshot.id,sourceTitle:snapshot.title,
@@ -1863,7 +1873,8 @@ extension AppModel {
         correctionInputFinal=true;cloudInputFinal=true
         correctionStatus="저장된 전사 불러옴 · 문맥 다시 교정 가능"
         meetingPrepared=false;processingFile=false;fileProgress=nil;phase = .completed;finalStatus="reprocessed"
-        statusMessage="재가공본 준비 · 발언·화자·자료를 편집한 뒤 회의록 다시 생성을 누르세요."
+        statusMessage=meeting.preview.isEmpty ? "재가공본 준비 · 발언·화자·자료를 편집한 뒤 회의록 다시 생성을 누르세요."
+            : "재가공본 준비 · 회의 도우미에서 전사록과 회의록을 편집할 수 있습니다."
         localSnapshot=EngineSnapshot(revision:0,audioSeconds:audioSeconds,processedSeconds:audioSeconds,
             isFinal:true,text:segments.map(\.text).joined(separator:" "),words:[],segments:segments,speakerActivity:nil)
         refreshVoiceCandidates()
@@ -1961,7 +1972,7 @@ extension AppModel {
         _=applyManualTranscriptEdits(request:request,drafts:drafts)
     }
     @discardableResult
-    func applyManualTranscriptEdits(request: TranscriptEditRequest,drafts: [Int:[ManualTranscriptDraft]]) -> Bool {
+    func applyManualTranscriptEdits(request: TranscriptEditRequest,drafts: [Int:[ManualTranscriptDraft]], notify: Bool = true) -> Bool {
         guard !closing,request.sessionID==session,request.revision==manualEditRevision else {
             errorMessage="회의 또는 편집 내용이 갱신되었습니다. 발언 편집창을 다시 열어 주세요."; return false
         }
@@ -1997,7 +2008,7 @@ extension AppModel {
         }
         speakerIDs=Set(speakerIDs + manualTranscriptEdits.flatMap { $0.parts.map(\.speaker) }.filter {$0>0}).sorted()
         transcriptUndoCount=transcriptUndo.count
-        transcriptTextChanged()
+        if notify { transcriptTextChanged() }
         return true
     }
     func undoTranscriptEdit() {
@@ -2005,13 +2016,13 @@ extension AppModel {
         transcriptEdits=previous.text;manualTranscriptEdits=previous.manual;transcriptUndoCount=transcriptUndo.count
         transcriptTextChanged()
     }
-    private func transcriptTextChanged() {
+    private func transcriptTextChanged(persist: Bool = true) {
         manualEditRevision=UUID()
         cancelCorrections()
         refreshVoiceCandidates()
         syncMeetingMinutes(force:true)
         meeting.invalidateTranscriptAfterEdit()
-        persistCurrentTranscript()
+        if persist { persistCurrentTranscript() }
         scheduleCorrection()
     }
     var canPlayTranscriptAudio: Bool { !isBusy && (savedAudioURL ?? audioArtifactURL) != nil }
@@ -2025,7 +2036,8 @@ extension AppModel {
                 title:"\(Self.time(segment.startTime))–\(Self.time(segment.endTime)) · \(speakerName(for:effectiveSpeaker(segment)))",
                 text:displayedText(for:segment),speaker:effectiveSpeaker(segment),sourceID:String(segment.id))
         }
-        documents += speakerIDs.map { EditingDocument(id:"speaker.\($0)",kind:.speaker,title:"화자 \($0)",text:speakerName(for:$0),speaker:$0,sourceID:String($0)) }
+        documents += speakerIDs.map { EditingDocument(id:"speaker.\($0)",kind:.speaker,title:"화자 \($0)",text:speakerName(for:$0),
+            speaker:$0,sourceID:String($0),editableName:speakerNames[$0] != nil) }
         if meeting.sessionID==session {
             documents.append(EditingDocument(id:"minutes",kind:.minutes,title:"현재 회의록",text:meeting.preview))
         }
@@ -2035,7 +2047,7 @@ extension AppModel {
                     text:$0.text,sourceID:document.id.uuidString)
             }
         }
-        return EditingSnapshot(sessionID:session,documents:documents)
+        return EditingSnapshot(sessionID:session,documents:documents,meetingTitle:sessionTitle)
     }
     func applyEditingPlan(_ plan: EditingPlan, capture: EditingSnapshot) throws -> EditingReceipt {
         guard !closing, plan.changeCount > 0 else { throw EditingError.unavailable }
@@ -2061,7 +2073,53 @@ extension AppModel {
                 try receipt.undo()
             }
         }
+        return try applyEditingTranscript(pairs)
+    }
+
+    func applyBulkCorrection(_ result: MeetingBulkCorrection.Evaluation, capture: EditingSnapshot) throws -> EditingReceipt {
+        let title = result.preview.newTitle
+        guard !closing, capture.sessionID == session, title == nil || canEditMeetingTitle else { throw EditingError.unavailable }
+        let documents = Dictionary(uniqueKeysWithValues: capture.documents.map { ($0.id, $0) })
+        let pairs = try result.changes.map { change -> (EditingChange, EditingDocument) in
+            guard let document = documents[change.targetID] else { throw EditingError.stale }
+            return (change, document)
+        }
+        let minuteChange = pairs.first { $0.1.kind == .minutes }?.0
+        var minutesReceipt = try minuteChange.map { try meeting.applyChatDraft($0.after, expected: $0.before) }
+        let transcriptPairs = pairs.filter { $0.1.kind == .transcript || $0.1.kind == .speaker }
+        let transcriptReceipt: EditingReceipt?
+        do {
+            transcriptReceipt = transcriptPairs.isEmpty && title == nil ? nil : try applyEditingTranscript(transcriptPairs, title: title)
+        } catch {
+            try minutesReceipt?.undo()
+            throw error
+        }
+
+        var applied: [String] = []
+        let speechCount = transcriptPairs.filter { $0.1.kind == .transcript }.count
+        let speakerCount = transcriptPairs.count - speechCount
+        if speechCount > 0 { applied.append("발언 \(speechCount)개") }
+        if speakerCount > 0 { applied.append("화자 이름 \(speakerCount)개") }
+        if minutesReceipt != nil { applied.append("회의록") }
+        if title != nil { applied.append("회의 제목") }
+        let note = applied.joined(separator: " · ") + " 변경을 저장했습니다."
+        return EditingReceipt(note:note,url:minutesReceipt?.url) { [weak self] in
+            try transcriptReceipt?.validateUndo()
+            try minutesReceipt?.undo()
+            do {
+                try transcriptReceipt?.undo()
+            } catch {
+                if let self, let change = minuteChange {
+                    minutesReceipt = try self.meeting.applyChatDraft(change.after, expected: self.meeting.preview)
+                }
+                throw error
+            }
+        }
+    }
+
+    private func applyEditingTranscript(_ pairs: [(EditingChange, EditingDocument)], title: String? = nil) throws -> EditingReceipt {
         let beforeText=transcriptEdits, beforeManual=manualTranscriptEdits, beforeNames=speakerNames
+        let beforeTitle=sessionTitle, beforeUndo=transcriptUndo, beforeSpeakerIDs=speakerIDs, beforePartID=nextManualPartID
         let beforeBindings=meeting.bindings, beforeVoiceNames=voiceNameAssignments
         let targetIDs=Set(pairs.filter{$0.1.kind == .transcript}.compactMap{Int($0.1.sourceID ?? "")})
         let selected=visibleSegments.filter{targetIDs.contains($0.id)}
@@ -2069,28 +2127,58 @@ extension AppModel {
         if !selected.isEmpty {
             let request=editRequest(for:ConversationTurn(id:UUID().uuidString,speaker:0,segments:selected),includeRelatedParts:false)
             var drafts=request.initialParts
+            let byID=Dictionary(uniqueKeysWithValues:selected.map { ($0.id,$0) })
             for (change,doc) in pairs where doc.kind == .transcript {
-                guard let id=Int(doc.sourceID ?? ""), let segment=selected.first(where:{$0.id==id}) else { throw EditingError.stale }
+                guard let id=Int(doc.sourceID ?? ""), let segment=byID[id] else { throw EditingError.stale }
                 drafts[id]=[ManualTranscriptDraft(start:segment.startTime,end:segment.endTime,
                     speaker:change.speaker<0 ? effectiveSpeaker(segment) : change.speaker,text:change.after)]
             }
-            guard applyManualTranscriptEdits(request:request,drafts:drafts) else { throw EditingError.stale }
+            guard applyManualTranscriptEdits(request:request,drafts:drafts,notify:false) else { throw EditingError.stale }
         }
         for (change,doc) in pairs where doc.kind == .speaker {
-            if let speaker=doc.speaker { setSpeakerName(change.after,for:speaker) }
+            if let speaker=doc.speaker { updateSpeakerName(change.after,for:speaker) }
         }
+        if let title { sessionTitle=title }
+        do {
+            try saveCurrentTranscript()
+        } catch {
+            transcriptEdits=beforeText;manualTranscriptEdits=beforeManual
+            transcriptUndo=beforeUndo;transcriptUndoCount=beforeUndo.count
+            nextManualPartID=beforePartID;speakerIDs=beforeSpeakerIDs;sessionTitle=beforeTitle
+            speakerNames=beforeNames;voiceNameAssignments=beforeVoiceNames
+            meeting.restoreEditingBindings(beforeBindings)
+            throw error
+        }
+        for speaker in speakerIDs where speakerNames[speaker] != beforeNames[speaker] { voice.unbindConfirmedSpeaker(speaker:speaker) }
+        if speakerNames != beforeNames { debugRecorder?.recordSpeakerNames(speakerNames) }
+        transcriptTextChanged(persist:false)
         let changedRevision=manualEditRevision, changedNames=speakerNames, sessionID=session
-        let bindingEncoder=JSONEncoder();bindingEncoder.outputFormatting=[.sortedKeys]
-        let changedBindings=try bindingEncoder.encode(meeting.bindings)
-        return EditingReceipt(note:"발언·화자 \(pairs.count)개 변경을 적용했습니다.") { [weak self] in
+        let changedBindings=meeting.bindings
+        let validateUndo: @MainActor () throws -> Void = { [weak self] in
             guard let self, !self.closing, self.session==sessionID,
                   self.manualEditRevision==changedRevision, self.speakerNames==changedNames,
-                  try bindingEncoder.encode(self.meeting.bindings)==changedBindings else { throw EditingError.stale }
+                  self.meeting.bindings==changedBindings, title == nil || self.sessionTitle==title else { throw EditingError.stale }
+        }
+        return EditingReceipt(note:"발언·화자 \(pairs.count)개 변경을 적용했습니다.",validateUndo:validateUndo) { [weak self] in
+            try validateUndo()
+            guard let self else { throw EditingError.stale }
+            let currentText=self.transcriptEdits, currentManual=self.manualTranscriptEdits
+            let currentVoiceNames=self.voiceNameAssignments
             self.transcriptEdits=beforeText;self.manualTranscriptEdits=beforeManual
-            if !selected.isEmpty { _=self.transcriptUndo.popLast();self.transcriptUndoCount=self.transcriptUndo.count }
             self.speakerNames=beforeNames;self.voiceNameAssignments=beforeVoiceNames
             self.meeting.restoreEditingBindings(beforeBindings)
-            self.transcriptTextChanged()
+            if title != nil { self.sessionTitle=beforeTitle }
+            do {
+                try self.saveCurrentTranscript()
+            } catch {
+                self.transcriptEdits=currentText;self.manualTranscriptEdits=currentManual
+                self.speakerNames=changedNames;self.voiceNameAssignments=currentVoiceNames
+                self.meeting.restoreEditingBindings(changedBindings)
+                if let title { self.sessionTitle=title }
+                throw error
+            }
+            if !selected.isEmpty { self.transcriptUndo=beforeUndo;self.transcriptUndoCount=beforeUndo.count }
+            self.transcriptTextChanged(persist:false)
         }
     }
 }

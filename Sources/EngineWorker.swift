@@ -17,7 +17,7 @@ final class EngineWorker {
     private var audioObserver: ((UUID, [Float]) -> Void)?
     private var queueSession: UUID?
     private var lastJSON = ""
-    private var lastEmission = Date.distantPast
+    private var lastSnapshotAt = -Double.infinity
     private let maxPendingSamples = 16000 * 8
 
     var backlogSeconds: Double {
@@ -66,7 +66,7 @@ final class EngineWorker {
         guard result == 0 else { throw nativeError() }
         queueSession = id
         lastJSON = ""
-        lastEmission = .distantPast
+        lastSnapshotAt = -Double.infinity
         lock.lock()
         submittedSession = id; pendingSamples = 0; acceptingAudio = true
         if resetCancellation { cancelled = false }
@@ -126,13 +126,15 @@ final class EngineWorker {
         }
     }
 
-    private func snapshotOnQueue(force: Bool) throws -> EngineSnapshot? {
-        if !force && Date().timeIntervalSince(lastEmission) < 0.12 { return nil }
+    private func snapshotOnQueue(force: Bool, interval: TimeInterval = 0.12) throws -> EngineSnapshot? {
+        let now = ProcessInfo.processInfo.systemUptime
+        if !force && now - lastSnapshotAt < interval { return nil }
+        lastSnapshotAt = now
         guard let pointer = hn_engine_snapshot_json(handle) else { throw nativeError() }
         let string = String(cString: pointer)
         if !force && string == lastJSON { return nil }
         let snapshot = try JSONDecoder().decode(EngineSnapshot.self, from: Data(string.utf8))
-        lastJSON = string; lastEmission = Date()
+        lastJSON = string
         return snapshot
     }
 
@@ -172,6 +174,7 @@ final class EngineWorker {
                         onSnapshot: @escaping (EngineSnapshot) -> Void,
                         completion: @escaping (Result<(EngineSnapshot, Bool), Error>) -> Void) {
         lock.lock(); cancelled = false; lock.unlock()
+        let updates = FileUpdates(onProgress: onProgress, onSnapshot: onSnapshot)
         if let onProgress {
             let progress = AudioFileProgress(stage: .preparingEngine, processedSeconds: 0, totalSeconds: nil)
             DispatchQueue.main.async { onProgress(progress) }
@@ -181,19 +184,20 @@ final class EngineWorker {
             var totalSeconds: Double?
             var lastProgressStage: AudioFileProgress.Stage = .preparingEngine
             var lastProgressAt = ProcessInfo.processInfo.systemUptime
-            func emitProgress(_ stage: AudioFileProgress.Stage) {
-                guard let onProgress else { return }
+            func publish(_ stage: AudioFileProgress.Stage, snapshot: EngineSnapshot? = nil) {
                 let now = ProcessInfo.processInfo.systemUptime
-                guard stage != lastProgressStage || now - lastProgressAt >= 0.25 else { return }
-                lastProgressStage = stage
-                lastProgressAt = now
-                let progress = AudioFileProgress(stage: stage, processedSeconds: Double(fileSamples) / 16000,
+                var progress: AudioFileProgress?
+                if onProgress != nil, stage != lastProgressStage || now - lastProgressAt >= 0.5 {
+                    lastProgressStage = stage
+                    lastProgressAt = now
+                    progress = AudioFileProgress(stage: stage, processedSeconds: Double(fileSamples) / 16000,
                                                  totalSeconds: totalSeconds)
-                DispatchQueue.main.async { onProgress(progress) }
+                }
+                updates.publish(progress: progress, snapshot: snapshot)
             }
             do {
                 try self.beginOnQueue(session, lowLatency: lowLatency, phrases: phrases, tuning: tuning, resetCancellation: false)
-                emitProgress(.openingFile)
+                publish(.openingFile)
                 let file = try AVAudioFile(forReading: url)
                 let source = file.processingFormat
                 if source.sampleRate.isFinite && source.sampleRate > 0 {
@@ -210,16 +214,16 @@ final class EngineWorker {
                 var reachedEOF = false
                 let paced = CommandLine.arguments.contains("--test-paced")
                 let fileStartedAt = ProcessInfo.processInfo.systemUptime
-                emitProgress(.transcribing)
+                publish(.transcribing)
                 while !self.isCancelled {
                     // File decoding can outrun the cloud service. Wait on this
                     // worker only; microphone ingress and the UI never use this gate.
                     while !self.isCancelled && shouldPauseAudio?(session) == true {
-                        emitProgress(.waitingForCloud)
+                        publish(.waitingForCloud)
                         Thread.sleep(forTimeInterval: 0.02)
                     }
                     if self.isCancelled { break }
-                    if lastProgressStage == .waitingForCloud { emitProgress(.transcribing) }
+                    if lastProgressStage == .waitingForCloud { publish(.transcribing) }
                     var readError: Error?
                     var conversionError: NSError?
                     let status = converter.convert(to: output, error: &conversionError) { requested, inputStatus in
@@ -246,10 +250,8 @@ final class EngineWorker {
                     if output.frameLength > 0, let channel = output.floatChannelData?[0] {
                         try self.pushOnQueue(Array(UnsafeBufferPointer(start: channel, count: Int(output.frameLength))))
                         fileSamples += Int(output.frameLength)
-                        emitProgress(.transcribing)
-                        if let snapshot = try self.snapshotOnQueue(force: false) {
-                            DispatchQueue.main.async { onSnapshot(snapshot) }
-                        }
+                        let snapshot = try self.snapshotOnQueue(force: false, interval: 0.5)
+                        publish(.transcribing, snapshot: snapshot)
                         if paced {
                             let remaining = Double(fileSamples) / 16000 - (ProcessInfo.processInfo.systemUptime - fileStartedAt)
                             if remaining > 0 { Thread.sleep(forTimeInterval: min(0.1, remaining)) }
@@ -260,7 +262,7 @@ final class EngineWorker {
                     if output.frameLength == 0 && reachedEOF { break }
                 }
                 let stopped = self.isCancelled
-                emitProgress(.finishing)
+                publish(.finishing)
                 guard hn_engine_finish(self.handle) == 0 else { throw self.nativeError() }
                 guard let snapshot = try self.snapshotOnQueue(force: true) else { throw self.nativeError() }
                 self.queueSession = nil
@@ -270,6 +272,41 @@ final class EngineWorker {
                 self.queueSession = nil
                 DispatchQueue.main.async { completion(.failure(error)) }
             }
+        }
+    }
+
+    /// File snapshots contain the full draft. Keep only the latest pending update if
+    /// the main queue is busy. The final snapshot travels separately in completion.
+    final class FileUpdates {
+        private let lock = NSLock()
+        private var pendingProgress: AudioFileProgress?
+        private var pendingSnapshot: EngineSnapshot?
+        private let onProgress: ((AudioFileProgress) -> Void)?
+        private let onSnapshot: (EngineSnapshot) -> Void
+
+        init(onProgress: ((AudioFileProgress) -> Void)?, onSnapshot: @escaping (EngineSnapshot) -> Void) {
+            self.onProgress = onProgress
+            self.onSnapshot = onSnapshot
+        }
+
+        func publish(progress: AudioFileProgress?, snapshot: EngineSnapshot?) {
+            guard progress != nil || snapshot != nil else { return }
+            lock.lock()
+            let needsDelivery = pendingProgress == nil && pendingSnapshot == nil
+            if let progress { pendingProgress = progress }
+            if let snapshot { pendingSnapshot = snapshot }
+            lock.unlock()
+            if needsDelivery { DispatchQueue.main.async { self.deliver() } }
+        }
+
+        private func deliver() {
+            lock.lock()
+            let progress = pendingProgress, snapshot = pendingSnapshot
+            pendingProgress = nil
+            pendingSnapshot = nil
+            lock.unlock()
+            if let progress { onProgress?(progress) }
+            if let snapshot { onSnapshot(snapshot) }
         }
     }
 }

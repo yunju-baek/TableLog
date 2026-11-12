@@ -9,11 +9,13 @@ struct EditingDocument: Codable, Equatable, Identifiable {
     let text: String
     var speaker: Int? = nil
     var sourceID: String? = nil
+    var editableName: Bool? = nil
 }
 struct EditingSnapshot: Codable {
     let sessionID: UUID
     let documents: [EditingDocument]
     var omittedCount = 0
+    var meetingTitle: String? = nil
 
     func focused(on request: String, limit: Int = 120_000) -> Self {
         let tokens = MaterialContext.tokens(request)
@@ -31,7 +33,7 @@ struct EditingSnapshot: Codable {
             if size <= remaining { remaining -= size; selected.insert(item.element.id) }
         }
         return Self(sessionID: sessionID, documents: documents.filter { selected.contains($0.id) },
-                    omittedCount: documents.count - selected.count)
+                    omittedCount: documents.count - selected.count, meetingTitle: meetingTitle)
     }
 }
 struct EditingChange: Codable, Identifiable {
@@ -99,6 +101,7 @@ enum EditingError: LocalizedError {
 struct EditingReceipt {
     let note: String
     var url: URL? = nil
+    var validateUndo: @MainActor () throws -> Void = {}
     let undo: @MainActor () throws -> Void
 }
 struct EditingChatEntry: Codable, Identifiable {
@@ -110,6 +113,8 @@ struct EditingChatEntry: Codable, Identifiable {
     var status = "working"
     var error: String? = nil
     var outputURL: URL? = nil
+    var bulk: MeetingBulkCorrection? = nil
+    var bulkPreview: MeetingBulkCorrection.Preview? = nil
 }
 
 @MainActor final class MeetingEditingChat: ObservableObject {
@@ -122,18 +127,21 @@ struct EditingChatEntry: Codable, Identifiable {
     private let snapshot: () -> EditingSnapshot
     private let settings: () -> CodexCorrectionSettings
     private let commit: (EditingPlan, EditingSnapshot) throws -> EditingReceipt
+    private let commitBulk: (MeetingBulkCorrection.Evaluation, EditingSnapshot) throws -> EditingReceipt
     private let directory: URL
     init(directory: URL, snapshot: @escaping () -> EditingSnapshot,
          settings: @escaping () -> CodexCorrectionSettings,
-         commit: @escaping (EditingPlan, EditingSnapshot) throws -> EditingReceipt) {
+         commit: @escaping (EditingPlan, EditingSnapshot) throws -> EditingReceipt,
+         commitBulk: @escaping (MeetingBulkCorrection.Evaluation, EditingSnapshot) throws -> EditingReceipt) {
         self.directory = directory; self.snapshot = snapshot; self.settings = settings; self.commit = commit
+        self.commitBulk = commitBulk
     }
     func syncSession(_ id: UUID) {
         guard sessionID != id else { return }
         task?.cancel(); task = nil; busy = false; undoActions.removeAll(); sessionID = id
         let url = directory.appendingPathComponent(id.uuidString + ".json")
         entries = (try? JSONDecoder().decode([EditingChatEntry].self, from: Data(contentsOf: url))) ?? []
-        for index in entries.indices where ["working", "ready"].contains(entries[index].status) {
+        for index in entries.indices where entries[index].bulk == nil && ["working", "ready"].contains(entries[index].status) {
             entries[index].status = "expired"
         }
         storageError = nil
@@ -142,6 +150,19 @@ struct EditingChatEntry: Codable, Identifiable {
         let text = request.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.count <= 12_000, !busy else { return }
         let full = snapshot(); syncSession(full.sessionID)
+        if let bulk = MeetingBulkCorrection.parse(text) {
+            var entry = EditingChatEntry(id: UUID(), request: text, bulk: bulk)
+            do {
+                let result = try bulk.evaluate(in: full)
+                entry.bulkPreview = result.preview
+                entry.status = result.hasChanges ? "ready" : "answered"
+                entry.answer = result.hasChanges ? "치환 건수와 제목을 확인한 뒤 변경을 적용하세요." : "현재 기록에서 바꿀 표기를 찾지 못했습니다."
+            } catch {
+                entry.status = "failed"; entry.error = error.localizedDescription
+            }
+            entries.append(entry); save()
+            return
+        }
         let capture = full.focused(on: text), settings = settings(), id = UUID()
         let previous = entries.suffix(6).map { ["request": $0.request, "answer": $0.answer, "status": $0.status] }
         entries.append(.init(id: id, request: text)); busy = true; save()
@@ -163,11 +184,26 @@ struct EditingChatEntry: Codable, Identifiable {
     }
     func cancel() { task?.cancel() }
     func apply(_ id: UUID) {
-        guard let i = entries.firstIndex(where: { $0.id == id }), entries[i].status == "ready",
-              let plan = entries[i].plan, let capture = entries[i].snapshot else { return }
+        guard let i = entries.firstIndex(where: { $0.id == id }), entries[i].status == "ready" else { return }
         do {
-            try plan.validateCurrent(captured: capture, current: snapshot())
-            let receipt = try commit(plan, capture)
+            let receipt: EditingReceipt
+            if let bulk = entries[i].bulk {
+                let current = snapshot()
+                guard current.sessionID == sessionID else { throw EditingError.stale }
+                let result = try bulk.evaluate(in: current)
+                if !result.hasChanges {
+                    entries[i].bulkPreview = result.preview
+                    entries[i].status = "answered"; entries[i].error = nil
+                    entries[i].answer = "현재 기록에는 적용할 변경이 없습니다."
+                    save(); return
+                }
+                receipt = try commitBulk(result, current)
+                entries[i].bulkPreview = result.preview
+            } else {
+                guard let plan = entries[i].plan, let capture = entries[i].snapshot else { return }
+                try plan.validateCurrent(captured: capture, current: snapshot())
+                receipt = try commit(plan, capture)
+            }
             entries[i].status = "applied"; entries[i].error = nil
             entries[i].answer = receipt.note; entries[i].outputURL = receipt.url; undoActions[id] = receipt.undo
         } catch { entries[i].error = error.localizedDescription }

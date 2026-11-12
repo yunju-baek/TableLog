@@ -191,7 +191,7 @@ struct MeetingHistoryView: View {
                     HistoryReprocessingControl(model: model, snapshot: value, dismiss: dismiss) { actionError = $0 }
                 }
             }
-            Text(showingDeleted ? "삭제한 회의에 보관 중입니다. 목록으로 복원하면 재가공을 이어갈 수 있습니다." : "원본은 읽기 전용으로 보관합니다. 재가공본에서 전사를 편집하고 회의록을 다시 생성할 수 있습니다.")
+            Text(showingDeleted ? "삭제한 회의에 보관 중입니다. 목록으로 복원하면 재가공을 이어갈 수 있습니다." : "원본은 읽기 전용으로 보관합니다. 재가공본에서 전사록과 회의록을 편집할 수 있습니다.")
                 .font(.system(size: 11)).foregroundStyle(AppTheme.muted).lineSpacing(3)
             if !value.warnings.isEmpty {
                 DisclosureGroup("기록 확인 사항 \(value.warnings.count)개") {
@@ -249,7 +249,7 @@ struct MeetingHistoryView: View {
                             Spacer()
                             Text(time(segment.start) + " – " + time(segment.end)).font(.system(size: 10, design: .monospaced)).foregroundStyle(AppTheme.muted)
                         }
-                        Text(segment.text).font(.system(size: 14)).lineSpacing(5).textSelection(.enabled)
+                        Text(TranscriptPresentation.format(segment.text)).font(.system(size: 14)).lineSpacing(5).textSelection(.enabled)
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(14).background(.white, in: RoundedRectangle(cornerRadius: 12))
                 }
             }.padding(2)
