@@ -3,6 +3,7 @@ import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var model: AppModel?
+    private var shutdownWindow: AppShutdownWindow?
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         if !CommandLine.arguments.contains("--test-exit") { NSApp.activate(ignoringOtherApps: true) }
@@ -10,7 +11,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let model else { return .terminateNow }
-        model.prepareToQuit { sender.reply(toApplicationShouldTerminate: true) }
+        guard shutdownWindow == nil else { return .terminateLater }
+        let window = AppShutdownWindow(model: model)
+        shutdownWindow = window
+        window.show()
+        DispatchQueue.main.async {
+            model.prepareToQuit { [weak self] in
+                self?.shutdownWindow?.close()
+                sender.reply(toApplicationShouldTerminate: true)
+            }
+        }
         return .terminateLater
     }
 }

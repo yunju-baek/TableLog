@@ -1,9 +1,7 @@
 import SwiftUI
 import AppKit
-import AVFoundation
 
-/// The panel reads app-owned meeting state. Opening a detail always uses the
-/// captured evidence snapshot, so a later transcript edit remains inspectable.
+/// Presents meeting summaries, suggestions and editing conversations.
 struct MeetingAssistantView: View {
     @ObservedObject var assistant: MeetingAssistant
     @ObservedObject var chat: MeetingEditingChat
@@ -61,8 +59,6 @@ struct MeetingAssistantView: View {
             switch selected {
             case .settings:
                 AssistantSettingsView(assistant: assistant, provider: provider) { sheet = nil }
-            case .evidence(let title, let items):
-                AssistantEvidenceView(title: title, evidence: items, open: assistant.openEvidence) { sheet = nil }
             case .history:
                 AssistantHistoryView(assistant: assistant) { sheet = nil }
             }
@@ -166,7 +162,7 @@ struct MeetingAssistantView: View {
         if !assistant.state.decisionCandidates.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 sectionTitle("결정 후보·확인", symbol: "checkmark.seal")
-                Text("근거 발언을 확인한 뒤 결정으로 표시해 주세요.")
+                Text("논의 내용을 확인한 뒤 결정으로 표시해 주세요.")
                     .assistantFont(10).foregroundStyle(AppTheme.muted)
                 ForEach(assistant.state.decisionCandidates) { item in itemRow(item, confirmable: true) }
             }.assistantCard()
@@ -201,9 +197,7 @@ struct MeetingAssistantView: View {
                                     Button("다시 검토") { assistant.setSuggestionStatus(id: suggestion.id, status: .review) }
                                         .assistantFont(10)
                                 }
-                                Button { sheet = .evidence(suggestion.title, suggestion.evidence) } label: {
-                                    Text(suggestion.title).assistantFont(11).multilineTextAlignment(.leading)
-                                }.buttonStyle(.plain)
+                                Text(suggestion.title).assistantFont(11).multilineTextAlignment(.leading)
                             }.padding(9).background(.white, in: RoundedRectangle(cornerRadius: 8))
                             }
                         }
@@ -245,14 +239,15 @@ struct MeetingAssistantView: View {
                 Text(item.text).assistantFont(13).lineSpacing(5).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            HStack(spacing: 10) {
-                if item.stale { Label("근거 갱신 확인 중", systemImage: "arrow.triangle.2.circlepath").assistantFont(10).foregroundStyle(AppTheme.rose) }
-                else if item.confirmed { Text("사용자 확인").assistantFont(10).foregroundStyle(AppTheme.violet) }
-                evidenceButton(title: item.text, evidence: item.evidence)
-                Spacer(minLength: 0)
-                if confirmable && !item.confirmed {
-                    Button("결정 확인") { assistant.confirmDecision(id: item.id) }
-                        .assistantFont(10).disabled(item.stale)
+            if item.stale || item.confirmed || confirmable {
+                HStack(spacing: 10) {
+                    if item.stale { Label("내용 갱신 확인 중", systemImage: "arrow.triangle.2.circlepath").assistantFont(10).foregroundStyle(AppTheme.rose) }
+                    else if item.confirmed { Text("사용자 확인").assistantFont(10).foregroundStyle(AppTheme.violet) }
+                    Spacer(minLength: 0)
+                    if confirmable && !item.confirmed {
+                        Button("결정 확인") { assistant.confirmDecision(id: item.id) }
+                            .assistantFont(10).disabled(item.stale)
+                    }
                 }
             }
         }
@@ -266,17 +261,14 @@ struct MeetingAssistantView: View {
                 Spacer()
                 if item.status == .review { Text("검토 목록").assistantFont(10).foregroundStyle(AppTheme.rose) }
             }
-            Button { sheet = .evidence(item.title, item.evidence) } label: {
-                Text(item.title).assistantFont(13, weight: .semibold).multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }.buttonStyle(.plain).help("제안의 근거 확인")
+            Text(item.title).assistantFont(13, weight: .semibold).multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             Text(item.reason).assistantFont(11).foregroundStyle(AppTheme.muted).lineSpacing(5)
             if !item.premise.isEmpty {
                 Text("확인할 전제 · \(item.premise)").assistantFont(10).foregroundStyle(AppTheme.rose)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if item.stale { Label("근거가 바뀌어 다시 검토해요", systemImage: "arrow.triangle.2.circlepath").assistantFont(10).foregroundStyle(AppTheme.rose) }
-            evidenceButton(title: item.title, evidence: item.evidence)
+            if item.stale { Label("내용이 바뀌어 다시 검토해요", systemImage: "arrow.triangle.2.circlepath").assistantFont(10).foregroundStyle(AppTheme.rose) }
             HStack(spacing: 6) {
                 if item.status == .review {
                     Button("검토 완료") { assistant.setSuggestionStatus(id: item.id, status: .resolved) }
@@ -298,7 +290,6 @@ struct MeetingAssistantView: View {
             Text(item.text).assistantFont(13, weight: .medium).textSelection(.enabled)
             if let answer = item.answer {
                 Text(answer).assistantFont(13).lineSpacing(5).textSelection(.enabled)
-                evidenceButton(title: "질문 답변의 근거", evidence: item.evidence)
                 if item.includedInMinutes == true {
                     Label("회의 메모에 추가됨", systemImage: "note.text.badge.plus")
                         .assistantFont(10).foregroundStyle(AppTheme.violet)
@@ -317,13 +308,6 @@ struct MeetingAssistantView: View {
             .background(AppTheme.lavender.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
     }
 
-    private func evidenceButton(title: String, evidence: [AssistantEvidence]) -> some View {
-        Button { sheet = .evidence(title, evidence) } label: {
-            Label("근거 \(evidence.count)개", systemImage: "quote.bubble")
-        }.assistantFont(10).buttonStyle(.plain).foregroundStyle(AppTheme.violet)
-            .disabled(evidence.isEmpty)
-    }
-
     private func sendQuestion() {
         let value = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, !chat.busy, value.count <= 12_000 else { return }
@@ -332,9 +316,9 @@ struct MeetingAssistantView: View {
 }
 
 private enum AssistantPanelSheet: Identifiable {
-    case settings, evidence(String, [AssistantEvidence]), history
+    case settings, history
     var id: String {
-        switch self { case .settings: return "settings"; case .history: return "history"; case .evidence: return "evidence" }
+        switch self { case .settings: return "settings"; case .history: return "history" }
     }
 }
 
@@ -411,81 +395,6 @@ private struct AssistantSettingsView: View {
             }
         }.padding(24).frame(width: 520).background(AppTheme.paper).tint(AppTheme.violet)
             .onChange(of: model) { _, _ in if !effort.isEmpty && !efforts.contains(effort) { effort = "" } }
-    }
-}
-
-private struct AssistantEvidenceView: View {
-    let title: String
-    let evidence: [AssistantEvidence]
-    let open: (AssistantEvidence) -> Void
-    let dismiss: () -> Void
-    @State private var player: AVPlayer?
-    @State private var playingID: String?
-    @State private var playbackError: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("근거 확인").assistantFont(17, weight: .bold)
-                    Text(title).assistantFont(13).lineLimit(3)
-                }
-                Spacer()
-                Button("닫기", action: dismiss).keyboardShortcut(.cancelAction)
-            }
-            Text("분석에 사용한 시점의 발언과 자료 원문이에요.").assistantFont(11).foregroundStyle(AppTheme.muted)
-            Divider()
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
-                    if evidence.isEmpty { Text("연결된 근거가 준비되면 이곳에 표시해요.").foregroundStyle(AppTheme.muted).padding(.vertical) }
-                    ForEach(evidence) { item in
-                        VStack(alignment: .leading, spacing: 10) {
-                            Label(item.kind == "utterance" ? "회의 발언" : "참고 자료", systemImage: item.kind == "utterance" ? "waveform" : "doc.text")
-                                .assistantFont(11, weight: .semibold).foregroundStyle(AppTheme.violet)
-                            Text(item.title).assistantFont(13, weight: .semibold)
-                            Text(item.location).assistantFont(11, design: .monospaced).foregroundStyle(AppTheme.muted)
-                            Text(item.text).assistantFont(13).lineSpacing(4).textSelection(.enabled)
-                            HStack {
-                                if item.sourcePath != nil {
-                                    Button("원본 열기") { open(item) }.controlSize(.regular)
-                                }
-                                if item.audioPath != nil {
-                                    Button { play(item) } label: {
-                                        Label(playingID == item.id ? "구간 처음부터 듣기" : "이 구간 듣기", systemImage: "play.circle")
-                                    }.controlSize(.regular)
-                                }
-                                if playingID == item.id {
-                                    Button("정지") { player?.pause(); playingID = nil }.controlSize(.regular)
-                                }
-                                Spacer()
-                            }
-                            DisclosureGroup("근거 식별 정보") {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(item.id)
-                                    Text("버전 · \(item.fingerprint)")
-                                    if let path = item.sourcePath { Text(path) }
-                                }.assistantFont(10, design: .monospaced).textSelection(.enabled).padding(.top, 5)
-                            }.assistantFont(10).foregroundStyle(AppTheme.muted)
-                        }.assistantCard()
-                    }
-                }.padding(.trailing, 6)
-            }
-            if let playbackError { Text(playbackError).assistantFont(11).foregroundStyle(AppTheme.rose) }
-        }.padding(24).frame(width: 700, height: 600).background(AppTheme.paper).tint(AppTheme.violet)
-            .onDisappear { player?.pause(); player = nil }
-    }
-
-    private func play(_ evidence: AssistantEvidence) {
-        guard let path = evidence.audioPath, FileManager.default.fileExists(atPath: path) else {
-            playbackError = "M4A 저장 위치를 확인해 주세요. 녹음 중인 파일은 저장 완료 후 재생할 수 있어요."
-            return
-        }
-        player?.pause(); playbackError = nil
-        let item = AVPlayerItem(url: URL(fileURLWithPath: path))
-        if let end = evidence.end, end > 0 { item.forwardPlaybackEndTime = CMTime(seconds: end + 0.25, preferredTimescale: 600) }
-        let next = AVPlayer(playerItem: item)
-        next.seek(to: CMTime(seconds: max(0, evidence.start ?? 0), preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
-        player = next; playingID = evidence.id; next.play()
     }
 }
 

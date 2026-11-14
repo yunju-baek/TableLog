@@ -332,6 +332,16 @@ final class ControlledMicrophone: MicrophoneCapturing {
         let afterEmptyGeneration=try Data(contentsOf:savedURL)
         check(generating.error != nil && afterEmptyGeneration==savedData,"empty generation result cannot replace completed minutes")
         observation.cancel()
+        main.regenerateHistoryMinutes()
+        try await waitForGenerator()
+        var generationQuitFinished = false
+        main.prepareToQuit { generationQuitFinished = true }
+        check(main.shutdownStage == .minutes && !generationQuitFinished,
+              "quit reports the pending AI minutes save while generation is running")
+        await controlled.resolve(.success(facts))
+        for _ in 0..<200 where !generationQuitFinished { try await Task.sleep(for: .milliseconds(10)) }
+        check(generationQuitFinished && main.shutdownStage == .finished,
+              "quit completes after the pending minutes save and engine shutdown")
 
         let autoRoot=root.appendingPathComponent("AutoFinish")
         let autoGenerator=SuspendedMinutesGenerator()
@@ -555,6 +565,7 @@ final class ControlledMicrophone: MicrophoneCapturing {
         var quitFinished = false
         captureModel.prepareToQuit { quitFinished = true }
         check(captureModel.phase == .finishing && !captureModel.canPause, "quit from pause finishes the same capture")
+        check(captureModel.shutdownStage == .audio, "quit reports the microphone drain before finalizing audio")
         microphone.drain()
         for _ in 0..<200 where !quitFinished { try await Task.sleep(for: .milliseconds(10)) }
         check(quitFinished, "quit from pause drains and releases engine resources")

@@ -44,6 +44,7 @@ import UniformTypeIdentifiers
     private var reconcilingVoiceNames = false
     @Published var phase: AppPhase = .loading
     @Published var statusMessage = "한국어 음성 모델을 준비하고 있어요."
+    @Published private(set) var shutdownStage: AppShutdownStage?
     @Published var errorMessage: String?
     @Published var segments: [TranscriptSegment] = [] { didSet { cachedEditedTexts=nil; cachedManualProjection=nil } }
     @Published var liveText = ""
@@ -514,6 +515,7 @@ import UniformTypeIdentifiers
 
     func stop() {
         guard canStop else { return }
+        if closing { shutdownStage = .audio }
         if !processingFile { endedAt = Date() }
         phase = .finishing; statusMessage = "마지막 발언과 화자를 정리하고 저장해요."
         if processingFile { worker.cancelFile(); return }
@@ -713,6 +715,7 @@ import UniformTypeIdentifiers
     private func finalizeSession() {
         finishAudioRecording()
         finishDebugRecording()
+        if closing { shutdownStage = .transcript }
         do {
             finalStatus = pendingFailure == nil ? (stoppedByUser ? "stopped" : "completed") : "partial"
             lastSavedURL = try SessionFiles.write(document(status: finalStatus), to: sessionDocumentURL)
@@ -873,6 +876,7 @@ import UniformTypeIdentifiers
     }
     func prepareToQuit(_ completion: @escaping () -> Void) {
         closing = true
+        shutdownStage = .tasks
         editingChat.cancel()
         assistant.cancel()
         materials.cancel()
@@ -891,6 +895,7 @@ import UniformTypeIdentifiers
         }
         if canStop || phase == .finishing {
             quitCompletion = completion
+            shutdownStage = .audio
             if canStop { stop() }
         } else { shutdownEngines(completion) }
     }
@@ -1020,6 +1025,7 @@ import UniformTypeIdentifiers
 
     @discardableResult private func persistCurrentTranscript() -> Bool {
         guard canExport || lastSavedURL != nil else { return true }
+        if closing { shutdownStage = .transcript }
         syncMeetingMinutes(force: true)
         do {
             try saveCurrentTranscript()
@@ -1067,9 +1073,14 @@ import UniformTypeIdentifiers
         correctionTask?.cancel()
         cancelCloud()
         syncMeetingMinutes(force: true)
+        shutdownStage = .minutes
         Task {
             await meeting.finish()
-            worker.shutdown(completion: completion)
+            shutdownStage = .engines
+            worker.shutdown {
+                self.shutdownStage = .finished
+                completion()
+            }
         }
     }
 
@@ -1276,6 +1287,7 @@ import UniformTypeIdentifiers
 
     private func finishAudioRecording() {
         guard !audioRecordingFinalized, let recorder = audioRecorder else { return }
+        if closing { shutdownStage = .audio }
         audioRecordingFinalized = true
         do {
             savedAudioURL = try recorder.finish()

@@ -309,8 +309,7 @@ struct MeetingHistoryView: View {
                                 HStack { Text(item.title).font(.system(size: 13, weight: .semibold)); Spacer(); Text(item.status.title).font(.system(size: 10)).foregroundStyle(AppTheme.violet) }
                                 Text(item.reason).font(.system(size: 12)).textSelection(.enabled)
                                 if !item.premise.isEmpty { Text("확인할 점: " + item.premise).font(.system(size: 11)).foregroundStyle(AppTheme.muted).textSelection(.enabled) }
-                                if item.stale { Text("근거 변경 확인 필요").font(.system(size: 10)).foregroundStyle(AppTheme.rose) }
-                                evidence(item.evidence)
+                                if item.stale { Text("내용 변경 확인 필요").font(.system(size: 10)).foregroundStyle(AppTheme.rose) }
                             }.padding(14).background(.white, in: RoundedRectangle(cornerRadius: 12))
                         }
                     }
@@ -321,7 +320,6 @@ struct MeetingHistoryView: View {
                                 Text(question.text).font(.system(size: 13, weight: .semibold)).textSelection(.enabled)
                                 Text(question.answer ?? "저장된 답변을 확인해 주세요.").font(.system(size: 12)).lineSpacing(4).textSelection(.enabled)
                                 if let error = question.error { Text(error).font(.system(size: 10)).foregroundStyle(AppTheme.rose) }
-                                evidence(question.evidence)
                             }.padding(14).background(.white, in: RoundedRectangle(cornerRadius: 12))
                         }
                     }
@@ -340,24 +338,9 @@ struct MeetingHistoryView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(item.text).font(.system(size: 12)).lineSpacing(4).textSelection(.enabled)
                     if item.confirmed { Label("사용자가 확인한 결정", systemImage: "checkmark.circle").font(.system(size: 10)).foregroundStyle(AppTheme.violet) }
-                    if item.stale { Text("근거 변경 확인 필요").font(.system(size: 10)).foregroundStyle(AppTheme.rose) }
-                    evidence(item.evidence)
+                    if item.stale { Text("내용 변경 확인 필요").font(.system(size: 10)).foregroundStyle(AppTheme.rose) }
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(14).background(.white, in: RoundedRectangle(cornerRadius: 12))
             }
-        }
-    }
-
-    @ViewBuilder private func evidence(_ items: [AssistantEvidence]) -> some View {
-        if !items.isEmpty {
-            DisclosureGroup("근거 \(items.count)개") {
-                ForEach(items) { item in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(item.title + " · " + item.location).font(.system(size: 10, weight: .semibold)).foregroundStyle(AppTheme.violet)
-                        if !item.text.isEmpty { Text(item.text).font(.system(size: 11)).textSelection(.enabled) }
-                        if let path = item.sourcePath ?? item.audioPath { Button("근거 파일 열기") { open(URL(fileURLWithPath: path)) }.font(.system(size: 10)) }
-                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 5)
-                }
-            }.font(.system(size: 10))
         }
     }
 

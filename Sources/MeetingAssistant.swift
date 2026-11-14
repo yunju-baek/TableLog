@@ -156,7 +156,7 @@ import Foundation
         if !found { summaryPending=true;explicitSummary=true }
         persist();startIfNeeded(force:true)
     }
-    func cancel() { stop(requeue:false);status="도우미 분석을 중단했어요. 저장된 요약과 근거를 확인할 수 있어요." }
+    func cancel() { stop(requeue:false);status="도우미 분석을 중단했어요. 저장된 요약을 확인할 수 있어요." }
     func resetForNewSession() {
         // Persist the previous session's completed content and stop its pending work before clearing the view.
         stop(requeue:false)
@@ -278,7 +278,7 @@ import Foundation
                 try AssistantFiles.write(["status":rejected.isEmpty ? "accepted" : "partial","message":message,"changedEvidenceIDs":rejected.joined(separator:",")],to:runFolder.appendingPathComponent("validation.json"))
                 self.finishLog(request.runID,status:rejected.isEmpty ? "completed" : "partial",message:message,started:date)
                 self.failures=0;self.nextAttempt = .distantPast;self.error=nil
-                self.status="\(MeetingMinutesRenderer.time(request.coveredThroughSeconds)) 발언까지 반영"+(rejected.isEmpty ? "" : " · 근거 재검토")
+                self.status="\(MeetingMinutesRenderer.time(request.coveredThroughSeconds)) 발언까지 반영"+(rejected.isEmpty ? "" : " · 내용 재검토")
                 self.event("analysis_completed",message:message)
                 if request.hasMoreSpeech { self.summaryPending=true;self.explicitSummary=self.explicitSummary || request.kind != "automatic" }
             } catch {
@@ -358,7 +358,7 @@ import Foundation
         }
         if let id=request.questionID,let i=state.questions.firstIndex(where:{$0.id==id}) {
             state.questions[i].answer=response.answer;state.questions[i].evidence=evidence(response.answerEvidenceIDs);state.questions[i].status="completed";state.questions[i].completedAt=date
-            if stale(response.answerEvidenceIDs) { state.questions[i].error="응답의 근거가 바뀌었어요. 새 질문으로 최신 맥락을 확인해 주세요." }
+            if stale(response.answerEvidenceIDs) { state.questions[i].error="참고한 내용이 바뀌었어요. 새 질문으로 최신 맥락을 확인해 주세요." }
         }
         state.coverageSeconds=max(state.coverageSeconds,request.coveredThroughSeconds);state.updatedAt=date;state.lastRunID=request.runID;state.lastSummaryAt=date
         if request.reviewSuggestions { state.lastSuggestionAt=date }
@@ -404,10 +404,6 @@ import Foundation
     func showDebugFolder() {
         let target=state.sessionID.map(folder) ?? directory
         try? AssistantFiles.directory(target);NSWorkspace.shared.open(target)
-    }
-    func openEvidence(_ evidence:AssistantEvidence) {
-        if let path=evidence.sourcePath,FileManager.default.fileExists(atPath:path) { NSWorkspace.shared.open(URL(fileURLWithPath:path)) }
-        else if let path=evidence.audioPath,FileManager.default.fileExists(atPath:path) { NSWorkspace.shared.open(URL(fileURLWithPath:path)) }
     }
     func appendixMarkdown(sessionID:UUID)->String {
         let value:AssistantState?

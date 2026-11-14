@@ -1359,7 +1359,7 @@ private struct LectureDashboard: View {
                     VStack(alignment:.leading,spacing:10) {
                         if assistant.state.summary.isEmpty { Text("요약을 준비하고 있어요.").foregroundStyle(.secondary) }
                         ForEach(assistant.state.summary) { item in
-                            Text("• " + item.text + (item.stale ? " · 근거 확인 필요" : ""))
+                            Text("• " + item.text + (item.stale ? " · 내용 확인 필요" : ""))
                         }
                     }.frame(maxWidth:.infinity,alignment:.leading).padding(8)
                 }
@@ -1367,8 +1367,8 @@ private struct LectureDashboard: View {
                     VStack(alignment:.leading,spacing:10) {
                         let questions=assistant.state.suggestions.filter { $0.kind == "question" && ($0.status == .active || $0.status == .review) }
                         if questions.isEmpty && assistant.state.openQuestions.isEmpty { Text("강의 맥락을 분석한 뒤 질문을 표시해요.").foregroundStyle(.secondary) }
-                        ForEach(questions) { item in Text("• " + item.title + (item.stale ? " · 근거 확인 필요" : "")) }
-                        ForEach(assistant.state.openQuestions) { item in Text("• " + item.text + (item.stale ? " · 근거 확인 필요" : "")) }
+                        ForEach(questions) { item in Text("• " + item.title + (item.stale ? " · 내용 확인 필요" : "")) }
+                        ForEach(assistant.state.openQuestions) { item in Text("• " + item.text + (item.stale ? " · 내용 확인 필요" : "")) }
                     }.frame(maxWidth:.infinity,alignment:.leading).padding(8)
                 }
                 Text("반영 범위: " + MeetingMinutesRenderer.time(assistant.state.coverageSeconds)).font(.caption).foregroundStyle(.secondary)
