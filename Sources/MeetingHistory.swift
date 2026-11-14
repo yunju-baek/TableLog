@@ -51,6 +51,7 @@ struct MeetingHistoryError: LocalizedError {
     private var allItems: [MeetingHistoryEntry] = []
     private let trash: MeetingHistoryTrash
     private var lastDeletedIDs = Set<UUID>()
+    private var deletionRevision = 0
     @Published private(set) var loading = false
     @Published private(set) var error: String?
     @Published private(set) var status = "지난 회의를 불러올 수 있습니다."
@@ -68,12 +69,29 @@ struct MeetingHistoryError: LocalizedError {
     }
     func refresh() async {
         let token = UUID(); generation = token; loading = true; error = nil
-        await snapshotCache.invalidate()
-        let transcripts = transcripts, minutes = minutes, assistant = assistant
-        let result = await Task.detached(priority: .utility) { MeetingHistoryReader.scan(transcripts: transcripts, minutes: minutes, assistant: assistant) }.value
+        let deletionRevision = deletionRevision
+        let transcripts = transcripts, minutes = minutes, assistant = assistant, trash = trash
+        let scan = Task.detached(priority: .userInitiated) {
+            let deletions = Result { try trash.read() }
+            let result = MeetingHistoryReader.scan(transcripts: transcripts, minutes: minutes, assistant: assistant) { [weak self] progress in
+                Task { @MainActor in
+                    guard let self, self.generation == token, self.loading else { return }
+                    self.allItems = progress.result.items
+                    self.partition(deletedIDs: self.deletionRevision == deletionRevision
+                        ? ((try? deletions.get()) ?? self.lastDeletedIDs) : self.lastDeletedIDs)
+                    self.status = "회의 불러오는 중 · \(progress.completed)/\(progress.total)개 파일 · \(self.items.count)개 회의"
+                }
+            }
+            return (result, deletions)
+        }
+        let (result, deletions) = await withTaskCancellationHandler {
+            await scan.value
+        } onCancel: {
+            scan.cancel()
+        }
         guard generation == token, !Task.isCancelled else { if generation == token { loading = false }; return }
         allItems = result.items; loading = false
-        do { partition(deletedIDs: try trash.read()) }
+        do { partition(deletedIDs: self.deletionRevision == deletionRevision ? try deletions.get() : lastDeletedIDs) }
         catch {
             partition(deletedIDs: lastDeletedIDs)
             self.error = "삭제 기록을 불러오려면 저장 폴더를 확인해 주세요. " + error.localizedDescription
@@ -96,6 +114,7 @@ struct MeetingHistoryError: LocalizedError {
             throw MeetingHistoryError(message: "목록을 새로 고친 뒤 회의를 선택해 주세요.")
         }
         let ids = try trash.setDeleted(entry.id, deleted: deleted)
+        deletionRevision += 1
         partition(deletedIDs: ids)
         error = nil
     }
@@ -109,6 +128,7 @@ struct MeetingHistoryError: LocalizedError {
 /// All I/O is read-only. Parsed values are snapshots, independent of any live meeting state.
 enum MeetingHistoryReader {
     struct ScanResult { let items: [MeetingHistoryEntry]; let warnings: [String] }
+    struct ScanProgress { let result: ScanResult; let completed: Int; let total: Int }
     private struct Sources {
         let id: UUID
         var transcript: URL?
@@ -178,10 +198,18 @@ enum MeetingHistoryReader {
     }
     private struct Materials: Decodable {
         let documents: [MeetingMaterial]
+        let documentCount: Int
+        private struct IndexDocument: Decodable { let id: UUID }
         enum CodingKeys: String, CodingKey { case documents }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
-            documents = (try? c.decode([Lossy<MeetingMaterial>].self, forKey: .documents))?.compactMap(\.value) ?? []
+            if decoder.userInfo[.historyIndexOnly] as? Bool == true {
+                documents = []
+                documentCount = (try? c.decode([Lossy<IndexDocument>].self, forKey: .documents))?.compactMap(\.value).count ?? 0
+            } else {
+                documents = (try? c.decode([Lossy<MeetingMaterial>].self, forKey: .documents))?.compactMap(\.value) ?? []
+                documentCount = documents.count
+            }
         }
         var context: MaterialContext {
             var seen = Set<UUID>(), chunkIDs = Set<String>(), result = MaterialContext()
@@ -205,6 +233,7 @@ enum MeetingHistoryReader {
         let context: Context?
         let materials: Materials?
         let record: MeetingWorkRecord?
+        let indexedRecord: Record?
         let assistant: AssistantState?
         let diagnostics: [String: String]?
         let audioPath: String?
@@ -221,7 +250,9 @@ enum MeetingHistoryReader {
             let indexOnly = decoder.userInfo[.historyIndexOnly] as? Bool == true
             speakers = indexOnly ? [] : ((try? c.decode([Lossy<SavedSpeaker>].self, forKey: .speakers))?.compactMap(\.value) ?? [])
             context = try? c.decode(Context.self, forKey: .context); materials = try? c.decode(Materials.self, forKey: .meeting_materials)
-            record = try? c.decode(MeetingWorkRecord.self, forKey: .meeting_minutes); assistant = indexOnly ? nil : (try? c.decode(AssistantState.self, forKey: .meeting_assistant))
+            indexedRecord = indexOnly ? (try? c.decode(Record.self, forKey: .meeting_minutes)) : nil
+            record = indexOnly ? nil : (try? c.decode(MeetingWorkRecord.self, forKey: .meeting_minutes))
+            assistant = indexOnly ? nil : (try? c.decode(AssistantState.self, forKey: .meeting_assistant))
             audioPath = (try? c.decode(Audio.self, forKey: .audio_file))?.path
             if let d = try? c.decode(Diagnostics.self, forKey: .diagnostics) { diagnostics = ["event_log": d.event_log, "comparison": d.comparison].compactMapValues { $0 } } else { diagnostics = nil }
         }
@@ -252,6 +283,7 @@ enum MeetingHistoryReader {
     }
     private static let fm = FileManager.default
     private static func read(_ url: URL, limit: Int = 64 * 1024 * 1024) throws -> Data {
+        try Task.checkCancellation()
         let attributes = try fm.attributesOfItem(atPath: url.path)
         guard let size = attributes[.size] as? NSNumber, size.int64Value <= limit else { throw MeetingHistoryError(message: "회의 파일 크기를 확인해 주세요: " + url.lastPathComponent) }
         return try Data(contentsOf: url)
@@ -283,7 +315,7 @@ enum MeetingHistoryReader {
         guard fm.fileExists(atPath: directory.path) else { return [] }
         return try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isRegularFileKey], options: [])
             .filter { !$0.lastPathComponent.hasPrefix(".") && $0.pathExtension.lowercased() == suffix && (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .sorted { modified($0) > modified($1) }
     }
     private static func uuid(_ url: URL) -> UUID? { UUID(uuidString: url.deletingPathExtension().lastPathComponent) }
     private static func stableID(_ url: URL) -> UUID {
@@ -302,14 +334,32 @@ enum MeetingHistoryReader {
         return trimmed.isEmpty ? fallback : trimmed
     }
 
-    static func scan(transcripts: URL, minutes: URL, assistant: URL? = nil) -> ScanResult {
+    static func scan(transcripts: URL, minutes: URL, assistant: URL? = nil,
+                     onProgress: ((ScanProgress) -> Void)? = nil) -> ScanResult {
         let assistant = assistant ?? minutes.deletingLastPathComponent().appendingPathComponent("Assistant")
         var sources: [UUID: Sources] = [:], warnings: [String] = []
         func list(_ root: URL, _ suffix: String) -> [URL] {
             do { return try files(root, extension: suffix) }
             catch { warnings.append("저장 폴더 확인: " + root.lastPathComponent + " · " + error.localizedDescription); return [] }
         }
-        for url in list(transcripts, "json") {
+        let transcriptFiles = list(transcripts, "json")
+        let recordFiles = list(minutes.appendingPathComponent("Sessions"), "json")
+        let markdownFiles = list(minutes, "md")
+        let total = transcriptFiles.count + recordFiles.count + markdownFiles.count
+        var completed = 0
+        var lastProgressAt = -Double.infinity
+        var pendingDrafts: [URL: Bool] = [:]
+        func publish() {
+            completed += 1
+            guard let onProgress, !Task.isCancelled else { return }
+            let now = ProcessInfo.processInfo.systemUptime
+            guard now - lastProgressAt >= 0.15 || completed == total else { return }
+            lastProgressAt = now
+            onProgress(ScanProgress(result: result(), completed: completed, total: total))
+        }
+        for url in transcriptFiles {
+            if Task.isCancelled { break }
+            defer { publish() }
             do {
                 let value = try decoded(Transcript.self, url, indexOnly: true)
                 guard let id = value.id ?? uuid(url), value.id != nil || value.started != nil || !value.segments.isEmpty else { throw MeetingHistoryError(message: "회의 식별자와 전사 구조를 확인해 주세요.") }
@@ -317,21 +367,23 @@ enum MeetingHistoryReader {
                 var source = sources[id] ?? Sources(id: id)
                 if source.transcript == nil || stamp > source.transcriptSaved {
                     source.transcript = url; source.transcriptSaved = stamp
-                    let embedded = value.record.flatMap { $0.id == id ? $0 : nil }
+                    let embedded = value.indexedRecord.flatMap { $0.id == id ? $0 : nil }
                     var itemWarnings: [String] = []
                     let segments = utterances(value.segments, correctionsEnabled: value.context?.enabled != false, warnings: &itemWarnings).0
                     source.transcriptMetadata = IndexMetadata(title: value.title, date: value.started.flatMap(date), saved: value.saved.flatMap(date),
                         preciseSavedTime: value.saved?.contains(".") == true, duration: max(0, value.duration ?? 0), count: segments.count,
-                        lastEnd: segments.map(\.end).max() ?? 0, materialCount: value.materials?.context.documents.count,
-                        embeddedTitle: embedded?.title, embeddedDate: embedded.flatMap { date($0.date) }, embeddedMaterialCount: embedded?.materials?.documents.count,
+                        lastEnd: segments.map(\.end).max() ?? 0, materialCount: value.materials?.documentCount,
+                        embeddedTitle: embedded?.title, embeddedDate: embedded?.date.flatMap(date), embeddedMaterialCount: embedded?.materials?.documentCount,
                         embeddedOutput: existing(fileURL(embedded?.editedOutput ?? embedded?.output)), warnings: itemWarnings)
                 }
                 sources[id] = source
             } catch { warnings.append(url.lastPathComponent + " · " + error.localizedDescription) }
         }
-        for url in list(minutes.appendingPathComponent("Sessions"), "json") {
+        for url in recordFiles {
+            if Task.isCancelled { break }
+            defer { publish() }
             do {
-                let value = try decoded(Record.self, url)
+                let value = try decoded(Record.self, url, indexOnly: true)
                 guard let id = value.id ?? uuid(url), value.id != nil || value.date != nil || !value.segments.isEmpty else { throw MeetingHistoryError(message: "회의 식별자와 기록 구조를 확인해 주세요.") }
                 let stamp = value.updatedAt ?? modified(url)
                 var source = sources[id] ?? Sources(id: id)
@@ -341,40 +393,51 @@ enum MeetingHistoryReader {
                     let segments = utterances(value.segments, warnings: &itemWarnings).0
                     source.recordMetadata = IndexMetadata(title: value.title, date: value.date.flatMap(date), saved: value.updatedAt,
                         preciseSavedTime: true, duration: 0, count: segments.count, lastEnd: segments.map(\.end).max() ?? 0,
-                        materialCount: value.materials?.context.documents.count, embeddedTitle: nil, embeddedDate: nil,
+                        materialCount: value.materials?.documentCount, embeddedTitle: nil, embeddedDate: nil,
                         embeddedMaterialCount: nil, embeddedOutput: existing(fileURL(value.editedOutput ?? value.output)), warnings: itemWarnings)
                 }
                 sources[id] = source
             } catch { warnings.append(url.lastPathComponent + " · " + error.localizedDescription) }
         }
-        for url in list(minutes, "md") {
+        for url in markdownFiles {
+            if Task.isCancelled { break }
+            defer { publish() }
             if let id = uuid(url) { var source = sources[id] ?? Sources(id: id); if source.markdown == nil { source.markdown = url }; sources[id] = source }
             else if !sources.values.contains(where: { $0.markdown?.standardizedFileURL == url.standardizedFileURL }) { let id = stableID(url); sources[id] = Sources(id: id, markdown: url) }
         }
-        var items: [MeetingHistoryEntry] = []
-        for source in sources.values {
-            let transcript = source.transcriptMetadata, record = source.recordMetadata
-            let allowance: TimeInterval = transcript?.preciseSavedTime == true ? 0 : 1
-            let newerRecord = record != nil && (transcript == nil || (record?.saved != nil && transcript?.saved != nil && record!.saved! > transcript!.saved!.addingTimeInterval(allowance)))
-            let selected = newerRecord ? record : (transcript ?? record)
-            let candidate = record?.embeddedOutput ?? transcript?.embeddedOutput ?? source.markdown
-            let pending = candidate.flatMap { try? read($0,limit:20 * 1024 * 1024) }
-                .map { MeetingMinutesRenderer.isPendingDraft(String(decoding:$0,as:UTF8.self)) } ?? false
-            let markdown = pending ? nil : candidate
-            let meetingTitle = title(newerRecord ? record?.title : transcript?.title,
-                fallback: title(record?.title ?? transcript?.embeddedTitle, fallback: markdown?.deletingPathExtension().lastPathComponent ?? "저장된 회의"))
-            let meetingDate = transcript?.date ?? record?.date ?? transcript?.embeddedDate ?? source.transcript.map(modified) ?? source.record.map(modified) ?? markdown.map(modified) ?? .distantPast
-            let materialCount = newerRecord ? (record?.materialCount ?? transcript?.materialCount ?? transcript?.embeddedMaterialCount ?? 0) : (transcript?.materialCount ?? record?.materialCount ?? transcript?.embeddedMaterialCount ?? 0)
-            let duration = max(selected?.lastEnd ?? 0, transcript?.duration ?? 0)
-            let hasMinutes = markdown.flatMap { try? fm.attributesOfItem(atPath: $0.path)[.size] as? NSNumber }.map { $0.int64Value > 0 } ?? false
-            if selected == nil && !hasMinutes { continue }
-            items.append(MeetingHistoryEntry(id: source.id, title: meetingTitle, date: meetingDate, duration: duration,
-                segmentCount: selected?.count ?? 0, materialCount: materialCount, hasMinutes: hasMinutes,
-                transcriptURL: source.transcript, recordURL: source.record, minutesURL: markdown,
-                assistantURL: existing(assistant.appendingPathComponent(source.id.uuidString).appendingPathComponent("state.json")), warnings: selected?.warnings ?? []))
+        return result()
+
+        func result() -> ScanResult {
+            var items: [MeetingHistoryEntry] = []
+            for source in sources.values {
+                let transcript = source.transcriptMetadata, record = source.recordMetadata
+                let allowance: TimeInterval = transcript?.preciseSavedTime == true ? 0 : 1
+                let newerRecord = record != nil && (transcript == nil || (record?.saved != nil && transcript?.saved != nil && record!.saved! > transcript!.saved!.addingTimeInterval(allowance)))
+                let selected = newerRecord ? record : (transcript ?? record)
+                let candidate = record?.embeddedOutput ?? transcript?.embeddedOutput ?? source.markdown
+                let pending = candidate.map { url in
+                    if let cached = pendingDrafts[url] { return cached }
+                    let pending = (try? read(url, limit: 20 * 1024 * 1024))
+                        .map { MeetingMinutesRenderer.isPendingDraft(String(decoding: $0, as: UTF8.self)) } ?? false
+                    pendingDrafts[url] = pending
+                    return pending
+                } ?? false
+                let markdown = pending ? nil : candidate
+                let meetingTitle = title(newerRecord ? record?.title : transcript?.title,
+                    fallback: title(record?.title ?? transcript?.embeddedTitle, fallback: markdown?.deletingPathExtension().lastPathComponent ?? "저장된 회의"))
+                let meetingDate = transcript?.date ?? record?.date ?? transcript?.embeddedDate ?? source.transcript.map(modified) ?? source.record.map(modified) ?? markdown.map(modified) ?? .distantPast
+                let materialCount = newerRecord ? (record?.materialCount ?? transcript?.materialCount ?? transcript?.embeddedMaterialCount ?? 0) : (transcript?.materialCount ?? record?.materialCount ?? transcript?.embeddedMaterialCount ?? 0)
+                let duration = max(selected?.lastEnd ?? 0, transcript?.duration ?? 0)
+                let hasMinutes = markdown.flatMap { try? fm.attributesOfItem(atPath: $0.path)[.size] as? NSNumber }.map { $0.int64Value > 0 } ?? false
+                if selected == nil && !hasMinutes { continue }
+                items.append(MeetingHistoryEntry(id: source.id, title: meetingTitle, date: meetingDate, duration: duration,
+                    segmentCount: selected?.count ?? 0, materialCount: materialCount, hasMinutes: hasMinutes,
+                    transcriptURL: source.transcript, recordURL: source.record, minutesURL: markdown,
+                    assistantURL: existing(assistant.appendingPathComponent(source.id.uuidString).appendingPathComponent("state.json")), warnings: selected?.warnings ?? []))
+            }
+            items.sort { $0.date == $1.date ? $0.id.uuidString < $1.id.uuidString : $0.date > $1.date }
+            return ScanResult(items: items, warnings: warnings)
         }
-        items.sort { $0.date == $1.date ? $0.id.uuidString < $1.id.uuidString : $0.date > $1.date }
-        return ScanResult(items: items, warnings: warnings)
     }
 
     private static func utterances(_ raw: [Segment], correctionsEnabled: Bool = true, warnings: inout [String]) -> ([MeetingUtterance], [Int: String]) {

@@ -411,6 +411,16 @@ final class ControlledMicrophone: MicrophoneCapturing {
             [trashTranscripts.appendingPathComponent(id.uuidString+".json"),trashMinutes.appendingPathComponent(id.uuidString+".md")]
         }
         let preservedBytes = try preservedFiles.map { try Data(contentsOf: $0) }
+        var historyProgress: [MeetingHistoryReader.ScanProgress] = []
+        let progressiveHistory = MeetingHistoryReader.scan(transcripts: trashTranscripts, minutes: trashMinutes) {
+            historyProgress.append($0)
+        }
+        check(historyProgress.first?.completed == 1 && historyProgress.first?.result.items.count == 1
+              && historyProgress.last?.completed == historyProgress.last?.total
+              && Set(progressiveHistory.items.map(\.id)) == Set(historyProgress.last!.result.items.map(\.id)),
+              "history publishes a readable first meeting before completing the directory scan")
+        check(progressiveHistory.items.count == 3 && progressiveHistory.items.allSatisfy(\.hasMinutes),
+              "incremental history preserves transcript and standalone minutes entries")
         let trashHistory = MeetingHistoryStore(transcripts: trashTranscripts, minutes: trashMinutes)
         await trashHistory.refresh()
         check(trashHistory.items.count == 3 && trashHistory.deletedItems.isEmpty, "history starts with every saved meeting")

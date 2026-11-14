@@ -73,6 +73,9 @@ struct MeetingHistoryView: View {
             detailRevision += 1
         }
         .onChange(of: showingDeleted) { _, _ in selectedID = filtered.first?.id; detailRevision += 1 }
+        .onChange(of: history.items.map(\.id)) { _, _ in
+            if selectedID == nil { selectedID = filtered.first?.id }
+        }
         .task(id: DetailRequest(id: selectedID, revision: detailRevision)) { await loadSelection() }
         .alert("지난 회의 확인", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
             Button("확인", role: .cancel) { actionError = nil }
