@@ -81,7 +81,7 @@ struct MaterialContext: Codable, Equatable {
         let names=Dictionary(uniqueKeysWithValues:documents.flatMap { doc in doc.chunks.map { ($0.id,doc.title+" · "+$0.location) } })
         let times=Dictionary(uniqueKeysWithValues:segments.map { ($0.id,MeetingMinutesRenderer.time($0.start)+" · "+String($0.text.prefix(240))) })
         func safe(_ s:String)->String { s.replacingOccurrences(of:"|",with:"\\|").replacingOccurrences(of:"\n",with:" ") }
-        var lines=["\n\n# 회의자료 반영", "", "자료의 배경·계획과 실제 회의 발언을 대조한 AI 초안입니다. 날짜·금액·담당 업무는 아래 근거 발언과 원문을 함께 확인합니다.", "", "| 자료·위치 | 구분 | 맥락·회의와의 관계 | 근거 발언 |", "| --- | --- | --- | --- |"]
+        var lines=["\n\n# 회의자료 반영", "", "자료의 배경·계획과 실제 회의 발언을 대조한 AI 초안이에요. 날짜·금액·담당 업무는 아래 근거 발언과 원문을 함께 확인해요.", "", "| 자료·위치 | 구분 | 맥락·회의와의 관계 | 근거 발언 |", "| --- | --- | --- | --- |"]
         for review in reviews {
             let label=["discussed":"논의됨","background":"배경 자료","conflict":"차이 확인","unresolved":"확인 필요"][review.status] ?? "확인 필요"
             lines.append("| \(safe(names[review.sourceID] ?? review.sourceID)) | \(label) | \(safe(review.text)) | \(review.evidenceIDs.compactMap { times[$0].map(safe) }.joined(separator:", ")) |")
@@ -104,7 +104,7 @@ struct MaterialContext: Codable, Equatable {
 @MainActor final class MeetingMaterials: ObservableObject {
     @Published private(set) var documents: [MeetingMaterial] = []
     @Published private(set) var busy = false
-    @Published private(set) var status = "회의자료를 추가하세요."
+    @Published private(set) var status = "회의자료를 추가해 주세요."
     @Published private(set) var error: String?
     @Published private(set) var folders: [MaterialFolder] = []
     @Published private(set) var watchingFolders = false
@@ -143,12 +143,12 @@ struct MaterialContext: Codable, Equatable {
         let manifest=root.appendingPathComponent("library.json")
         if FileManager.default.fileExists(atPath:manifest.path) {
             do { documents=try JSONDecoder().decode([MeetingMaterial].self,from:Data(contentsOf:manifest)) }
-            catch { loadFailed=true;self.error="자료 목록을 읽을 수 없습니다. 저장 폴더의 library.json을 확인해 주세요." }
+            catch { loadFailed=true;self.error="자료 목록을 읽을 수 없어요. 저장 폴더의 library.json을 확인해 주세요." }
         }
         let folderManifest=root.appendingPathComponent("folders.json")
         if FileManager.default.fileExists(atPath:folderManifest.path) {
             do { folders=try JSONDecoder().decode([MaterialFolder].self,from:Data(contentsOf:folderManifest)) }
-            catch { folderLoadFailed=true;self.error="폴더 연결 기록을 확인해 주세요. folders.json 원본을 보관했습니다." }
+            catch { folderLoadFailed=true;self.error="폴더 연결 기록을 확인해 주세요. folders.json 원본을 보관했어요." }
         }
     }
     private func save() throws {
@@ -187,7 +187,7 @@ struct MaterialContext: Codable, Equatable {
         for index in folders.indices { folders[index].enabled=false }
         do {
             try save(); try saveFolders()
-            status="저장 회의의 자료 \(self.context.documents.count)개를 재가공본에 연결했습니다."
+            status="저장 회의의 자료 \(self.context.documents.count)개를 재가공본에 연결했어요."
             error=nil; didChange?()
         } catch {
             documents=oldDocuments;folders=oldFolders
@@ -216,7 +216,7 @@ struct MaterialContext: Codable, Equatable {
     }
     func importURL(_ text:String,provider:MinutesProvider,settings:CodexCorrectionSettings) {
         guard let url=URL(string:text.trimmingCharacters(in:.whitespacesAndNewlines)),["http","https"].contains(url.scheme?.lowercased() ?? ""),url.host != nil,url.user==nil,url.password==nil else {
-            error="HTTP 또는 HTTPS 자료 주소를 입력하세요.";return
+            error="HTTP 또는 HTTPS 자료 주소를 입력해 주세요.";return
         }
         startImport([.init(url:url,remote:true)],provider:provider,settings:settings)
     }
@@ -282,7 +282,7 @@ struct MaterialContext: Codable, Equatable {
                         try? FileManager.default.removeItem(at:root.appendingPathComponent(document.id.uuidString))
                         let previous=documents[existing].enabled;documents[existing].enabled=true
                         do { try save();didChange?() } catch { documents[existing].enabled=previous;throw error }
-                        status="보관 중인 원본을 이번 회의에 선택했습니다.";continue
+                        status="보관 중인 원본을 이번 회의에 선택했어요.";continue
                     }
                     documents.append(document)
                     do { try save() } catch { documents.removeLast();throw error }
@@ -308,7 +308,7 @@ struct MaterialContext: Codable, Equatable {
     func analyze(provider:MinutesProvider,settings:CodexCorrectionSettings) {
         guard !busy,!loadFailed else { return }
         guard provider.isAvailable else {
-            status="추출문 보관 완료 · 회의록 설정에서 선택한 AI CLI를 사용하세요."
+            status="추출문 보관 완료 · 회의록 설정에서 선택한 AI CLI를 사용해 주세요."
             return
         }
         let ids=context.documents.filter { !$0.analyzed }.map(\.id)
@@ -339,7 +339,7 @@ struct MaterialContext: Codable, Equatable {
     func pickFolders(provider:MinutesProvider,settings:CodexCorrectionSettings) {
         guard panel==nil,!folderLoadFailed else { return }
         let panel=NSOpenPanel();panel.allowsMultipleSelection=true;panel.canChooseDirectories=true;panel.canChooseFiles=false
-        panel.prompt="폴더 연결";panel.message="하위 폴더의 PDF·이미지·TXT·MD를 연결합니다. 자료 선택과 하위 폴더 포함 여부는 연결 후 조정할 수 있습니다."
+        panel.prompt="폴더 연결";panel.message="하위 폴더의 PDF·이미지·TXT·MD를 연결해요. 자료 선택과 하위 폴더 포함 여부는 연결 후 조정할 수 있어요."
         self.panel=panel
         panel.begin { [weak self] response in
             guard let self else { return };self.panel=nil
@@ -387,7 +387,7 @@ struct MaterialContext: Codable, Equatable {
         guard let bookmark=folder.bookmark else {return URL(fileURLWithPath:folder.path)}
         var stale=false
         let url=try URL(resolvingBookmarkData:bookmark,options:[.withSecurityScope,.withoutUI],relativeTo:nil,bookmarkDataIsStale:&stale)
-        if stale {throw MaterialError.message("폴더 접근 갱신 필요 · 폴더 연결을 해제한 뒤 다시 선택하세요. 보관 자료는 유지됩니다.")}
+        if stale {throw MaterialError.message("폴더 접근 갱신 필요 · 폴더 연결을 해제한 뒤 다시 선택해 주세요. 보관 자료는 유지돼요.")}
         return url.standardizedFileURL.resolvingSymlinksInPath()
     }
     private func updateFolderFile(_ id:UUID,path:String,materialID:UUID?,stamp:String?,status:String) {
@@ -549,7 +549,7 @@ extension MeetingMaterials {
                 self.documents[index] = original
             }
             do { try self.save() } catch { self.documents = current; throw error }
-            self.didChange?(); self.status = "자료 변경을 되돌렸습니다. 저장 파일은 보관합니다."
+            self.didChange?(); self.status = "자료 변경을 되돌렸어요. 저장 파일은 보관해요."
         }
     }
 }

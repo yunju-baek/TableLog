@@ -20,14 +20,14 @@ struct EngineSettingsView: View {
                     Text("빠른 반영 · 짧은 문맥").tag(3)
                     Text("문맥 우선 · 긴 문맥").tag(13)
                 }.pickerStyle(.segmented)
-                Text("긴 문맥은 뒤에 이어지는 음성을 더 기다려 인식합니다. 실제 정확도는 녹음 조건과 발언에 따라 달라집니다.").font(.caption).foregroundStyle(.secondary)
+                Text("긴 문맥은 뒤에 이어지는 음성을 더 기다려 인식해요. 실제 정확도는 녹음 조건과 발언에 따라 달라져요.").font(.caption).foregroundStyle(.secondary)
                 Toggle("자동 구두점", isOn: $settings.automaticPunctuation)
                 HStack {
                     Text("등록 용어 강조")
                     Slider(value: $settings.vocabularyBoost, in: 0.1...3.0, step: 0.1)
                     Text(String(format: "%.1f", settings.vocabularyBoost)).monospacedDigit().frame(width: 30)
                 }
-                Text("기본 1.0. 이름·전문용어는 문맥 교정 설정에 입력합니다. 강조가 높으면 등록 용어를 더 선호하므로 비교 기록으로 결과를 확인하세요.")
+                Text("기본 1.0. 이름·전문용어는 문맥 교정 설정에 입력해요. 강조가 높으면 등록 용어를 더 선호하므로 비교 기록으로 결과를 확인해 주세요.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Divider()
@@ -41,14 +41,14 @@ struct EngineSettingsView: View {
                      ? "NVIDIA v3-streaming 프리셋 · 처리 구간 1.04초 · 최근 기억 6.4초 · 화자 캐시 21.12초"
                      : "기존 앱 설정 · 처리 구간 1.12초 · 최근 기억 21.12초 · 화자 캐시 21.12초")
                     .font(.caption).foregroundStyle(.secondary)
-                Text("엔진은 최대 8개 화자 채널을 사용합니다. 겹친 발언의 단어에는 대표 화자를 붙이며, 녹음 중 판정이 갱신됩니다.")
+                Text("엔진은 최대 8개 화자 채널을 사용해요. 겹친 발언의 단어에는 대표 화자를 붙이며, 녹음 중 판정이 갱신돼요.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Divider()
             HStack {
                 VStack(alignment:.leading,spacing:3) {
-                    Text("모델은 TableLog/Models에서 별도로 불러옵니다.").font(.caption)
-                    Text("앱 업데이트 시 기존 모델을 재사용합니다.").font(.caption2).foregroundStyle(.secondary)
+                    Text("모델은 TableLog/Models에서 별도로 불러와요.").font(.caption)
+                    Text("앱 업데이트 시 기존 모델을 재사용해요.").font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button("모델 폴더 열기") {
@@ -66,7 +66,7 @@ struct EngineSettingsView: View {
                     .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
                     .disabled(!model.canStart || !settings.valid)
             }
-            Text(model.canStart ? "다음 녹음·파일 전사부터 적용됩니다. 한국어 ko-KR · Metal · Q8 모델을 사용합니다." : "녹음과 처리를 마친 뒤 설정을 적용할 수 있습니다.")
+            Text(model.canStart ? "다음 녹음·파일 전사부터 적용돼요. 한국어 ko-KR · Metal · Q8 모델을 사용해요." : "녹음과 처리를 마친 뒤 설정을 적용할 수 있어요.")
                 .font(.caption2).foregroundStyle(.secondary)
         }.padding(22).frame(width: 520).environment(\.colorScheme, .light)
     }

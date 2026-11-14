@@ -34,7 +34,7 @@ struct StorageSettingsView: View {
                     .background(AppTheme.lavender, in: RoundedRectangle(cornerRadius: 14))
                 VStack(alignment: .leading, spacing: 5) {
                     Text("저장 위치 설정").font(.system(size: 22, weight: .bold))
-                    Text("회의자료와 음성, 학습 기록을 한 폴더에 모아 관리합니다.")
+                    Text("회의자료와 음성, 학습 기록을 한 폴더에 모아 관리해요.")
                         .font(.system(size: 12)).foregroundStyle(AppTheme.muted)
                 }
                 Spacer()
@@ -49,7 +49,7 @@ struct StorageSettingsView: View {
                     if let startupError, !startupError.isEmpty {
                         Label {
                             VStack(alignment: .leading, spacing: 5) {
-                                Text("저장 위치 확인이 필요합니다").font(.system(size: 13, weight: .semibold))
+                                Text("저장 위치 확인이 필요해요").font(.system(size: 13, weight: .semibold))
                                 Text(startupError).font(.system(size: 12)).textSelection(.enabled)
                             }
                         } icon: {
@@ -81,7 +81,7 @@ struct StorageSettingsView: View {
                         }
                         Text("기본 위치: 문서 > TableLog")
                             .font(.system(size: 11)).foregroundStyle(AppTheme.muted)
-                        Text("위치를 변경할 때는 TableLog 전용 빈 폴더를 선택하거나 새로 만드세요.")
+                        Text("위치를 변경할 때는 TableLog 전용 빈 폴더를 선택하거나 새로 만들어 주세요.")
                             .font(.system(size: 11)).foregroundStyle(AppTheme.muted)
                         if !storageStatus.isEmpty {
                             Text(storageStatus).font(.system(size: 11)).foregroundStyle(AppTheme.muted)
@@ -96,9 +96,9 @@ struct StorageSettingsView: View {
                                 .font(.system(size: 13, weight: .semibold))
                             Text(displayPath(pendingRoot))
                                 .font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
-                            Text("앱을 종료한 뒤 다시 열면 기존 자료를 새 위치로 복사합니다. 원본은 현재 위치에 보관됩니다.")
+                            Text("앱을 종료한 뒤 다시 열면 기존 자료를 새 위치로 복사해요. 원본은 현재 위치에 보관돼요.")
                                 .font(.system(size: 12)).lineSpacing(4)
-                            Text("현재 회의는 현재 저장 위치에 계속 저장됩니다.")
+                            Text("현재 회의는 현재 저장 위치에 계속 저장돼요.")
                                 .font(.system(size: 11)).foregroundStyle(AppTheme.muted)
                             Button("변경 예약 취소") {
                                 StorageLocations.cancelPending()
@@ -168,7 +168,7 @@ struct StorageSettingsView: View {
     private func chooseRoot() {
         let panel = NSOpenPanel()
         panel.title = "테이블로그 저장 폴더 선택"
-        panel.message = "TableLog 전용 빈 폴더를 선택하거나 새로 만드세요. 그 안에 회의자료와 녹음 등 항목별 폴더를 만듭니다."
+        panel.message = "TableLog 전용 빈 폴더를 선택하거나 새로 만들어 주세요. 그 안에 회의자료와 녹음 등 항목별 폴더를 만들어요."
         panel.prompt = "이 폴더 사용"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false

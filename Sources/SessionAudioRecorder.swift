@@ -14,17 +14,17 @@ enum SessionAudioRecorderError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .fileAlreadyExists(let path):
-            return "같은 녹음 파일이 이미 존재합니다. 새 회의로 녹음을 시작해 주세요. \(path)"
+            return "같은 녹음 파일이 이미 존재해요. 새 회의로 녹음을 시작해 주세요. \(path)"
         case .fileCreationFailed(let detail):
-            return "M4A 녹음 파일 생성에 실패했습니다. \(detail)"
+            return "M4A 녹음 파일 생성에 실패했어요. \(detail)"
         case .invalidSamples:
-            return "M4A 녹음 입력에 유효한 범위를 벗어난 음성 값이 포함되어 있습니다."
+            return "M4A 녹음 입력에 유효한 범위를 벗어난 음성 값이 포함돼 있어요."
         case .backlogExceeded:
-            return "M4A 인코딩과 저장이 입력 속도를 따라가지 못했습니다. 저장 대기 한도는 음성 30초입니다."
+            return "M4A 인코딩과 저장이 입력 속도를 따라가지 못했어요. 저장 대기 한도는 음성 30초예요."
         case .writeFailed(let detail):
-            return "M4A 음성 저장 중 오류가 발생했습니다. \(detail)"
+            return "M4A 음성 저장 중 오류가 발생했어요. \(detail)"
         case .finalizationFailed(let detail):
-            return "M4A 녹음 파일 마무리 중 오류가 발생했습니다. \(detail)"
+            return "M4A 녹음 파일 마무리 중 오류가 발생했어요. \(detail)"
         }
     }
 }
@@ -149,7 +149,7 @@ final class SessionAudioRecorder: @unchecked Sendable {
                                                     frameCapacity: AVAudioFrameCount(samples.count)),
                       let destination = buffer.floatChannelData?[0] else {
                     writeFailed = true
-                    recordFailure(SessionAudioRecorderError.writeFailed("음성 버퍼 할당에 실패했습니다."))
+                    recordFailure(SessionAudioRecorderError.writeFailed("음성 버퍼 할당에 실패했어요."))
                     return
                 }
                 buffer.frameLength = AVAudioFrameCount(samples.count)

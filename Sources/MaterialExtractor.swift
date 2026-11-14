@@ -49,17 +49,17 @@ enum MaterialExtractor {
             defer { try? FileManager.default.removeItem(at:temp) }
             guard let http=response as? HTTPURLResponse,(200...299).contains(http.statusCode),let final=response.url,["http","https"].contains(final.scheme ?? "") else { throw MaterialError.message("자료 URL 응답을 확인해 주세요.") }
             let bytes=(try temp.resourceValues(forKeys:[.fileSizeKey])).fileSize ?? 0
-            guard bytes>0,bytes<=maxBytes else { throw MaterialError.message("자료는 파일당 50MB까지 추가할 수 있습니다.") }
+            guard bytes>0,bytes<=maxBytes else { throw MaterialError.message("자료는 파일당 50MB까지 추가할 수 있어요.") }
             let mime=(response.mimeType ?? "").lowercased()
             if mime.contains("pdf") { ext="pdf" } else if mime.contains("png") { ext="png" } else if mime.contains("jpeg") { ext="jpg" } else if mime.contains("html") { ext="html" } else if ext.isEmpty { ext="txt" }
             file=folder.appendingPathComponent("download."+ext);try FileManager.default.copyItem(at:temp,to:file)
             origin=final.absoluteString;title=final.host.map { $0+" · "+(final.lastPathComponent.isEmpty ? "웹 자료" : final.lastPathComponent) } ?? "URL 자료"
-            notes.append("URL을 가져온 시점의 내용을 보관합니다. 로그인·동적 화면은 PDF 또는 텍스트로 추가해 주세요.")
+            notes.append("URL을 가져온 시점의 내용을 보관해요. 로그인·동적 화면은 PDF 또는 텍스트로 추가해 주세요.")
         }
         guard ["pdf","png","jpg","jpeg","txt","md","markdown","html","htm"].contains(ext) else { throw MaterialError.message("지원 형식: URL, PDF, PNG/JPG, TXT, MD") }
         let scoped=file.startAccessingSecurityScopedResource();defer { if scoped { file.stopAccessingSecurityScopedResource() } }
         let size=(try file.resourceValues(forKeys:[.fileSizeKey])).fileSize ?? 0
-        guard size>0,size<=maxBytes else { throw MaterialError.message("자료는 파일당 50MB까지 추가할 수 있습니다.") }
+        guard size>0,size<=maxBytes else { throw MaterialError.message("자료는 파일당 50MB까지 추가할 수 있어요.") }
         let original=folder.appendingPathComponent("original."+ext)
         try FileManager.default.copyItem(at:file,to:original)
         let data=try Data(contentsOf:original),hash=SHA256.hash(data:data).map {String(format:"%02x",$0)}.joined()
@@ -78,8 +78,8 @@ enum MaterialExtractor {
         try Task.checkCancellation()
         notes+=extracted.1
         for (location,text) in extracted.0 { chunks+=pieces(text,id:id,location:location,offset:chunks.count) }
-        guard chunks.contains(where:{$0.text.trimmingCharacters(in:.whitespacesAndNewlines).count>=2}) else { throw MaterialError.message("추출 가능한 본문이 없습니다. 텍스트가 선명한 PDF·이미지 또는 TXT로 추가해 주세요.") }
-        guard chunks.reduce(0,{$0+$1.text.count})<=2_000_000 else { throw MaterialError.message("자료 본문은 파일당 200만 자까지 처리합니다. 문서를 나누어 추가해 주세요.") }
+        guard chunks.contains(where:{$0.text.trimmingCharacters(in:.whitespacesAndNewlines).count>=2}) else { throw MaterialError.message("추출 가능한 본문이 없어요. 텍스트가 선명한 PDF·이미지 또는 TXT로 추가해 주세요.") }
+        guard chunks.reduce(0,{$0+$1.text.count})<=2_000_000 else { throw MaterialError.message("자료 본문은 파일당 200만 자까지 처리해요. 문서를 나누어 추가해 주세요.") }
         let extractedURL=folder.appendingPathComponent("extracted.md")
         let content="# \(title)\n\n출처: \(origin)\n\n"+notes.joined(separator:"\n")+"\n\n"+chunks.map { "## \($0.location) · \($0.id)\n\n\($0.text)" }.joined(separator:"\n\n")
         try Data(content.utf8).write(to:extractedURL,options:.atomic)
@@ -93,7 +93,7 @@ enum MaterialExtractor {
         return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator:"\n")
     }
     static func pdf(_ url:URL,folder:URL) throws -> ([(String,String)],[String]) {
-        guard let doc=PDFDocument(url:url),!doc.isLocked else { throw MaterialError.message("PDF를 열 수 없습니다. 암호 해제본을 추가해 주세요.") }
+        guard let doc=PDFDocument(url:url),!doc.isLocked else { throw MaterialError.message("PDF를 열 수 없어요. 암호 해제본을 추가해 주세요.") }
         guard doc.pageCount<=300 else { throw MaterialError.message("PDF는 300쪽씩 나누어 추가해 주세요.") }
         var notes:[String]=[],primary:String?
         let paths=["/opt/homebrew/bin/opendataloader-pdf","/usr/local/bin/opendataloader-pdf",FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/opendataloader-pdf").path]
@@ -134,7 +134,7 @@ enum MaterialExtractor {
                 notes.append("\(i+1)쪽 이미지 렌더링·OCR · 표·도식 원본 대조 필요")
             }
         }
-        if primary != nil { notes.append("구조 추출과 OCR 보완 구간에 같은 문장이 포함될 수 있습니다.") }
+        if primary != nil { notes.append("구조 추출과 OCR 보완 구간에 같은 문장이 포함될 수 있어요.") }
         return (pages,notes)
     }
 }

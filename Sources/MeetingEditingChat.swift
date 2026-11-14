@@ -91,9 +91,9 @@ enum EditingError: LocalizedError {
     case invalid, stale, multipleDomains, unavailable
     var errorDescription: String? {
         switch self {
-        case .invalid: return "수정안의 대상과 내용을 확인해 주세요. 요청을 구체적으로 적어 다시 시도할 수 있습니다."
-        case .stale: return "대상 내용이 갱신되었습니다. 현재 내용을 기준으로 다시 요청해 주세요."
-        case .multipleDomains: return "녹취록, 회의록, 회의자료 중 한 종류씩 요청하면 변경안을 적용할 수 있습니다. 여러 회의자료는 함께 변경할 수 있습니다."
+        case .invalid: return "수정안의 대상과 내용을 확인해 주세요. 요청을 구체적으로 적어 다시 시도할 수 있어요."
+        case .stale: return "대상 내용이 갱신됐어요. 현재 내용을 기준으로 다시 요청해 주세요."
+        case .multipleDomains: return "녹취록, 회의록, 회의자료 중 한 종류씩 요청하면 변경안을 적용할 수 있어요. 여러 회의자료는 함께 변경할 수 있어요."
         case .unavailable: return "대상 자료와 진행 중인 작업을 확인한 뒤 다시 시도해 주세요."
         }
     }
@@ -156,7 +156,7 @@ struct EditingChatEntry: Codable, Identifiable {
                 let result = try bulk.evaluate(in: full)
                 entry.bulkPreview = result.preview
                 entry.status = result.hasChanges ? "ready" : "answered"
-                entry.answer = result.hasChanges ? "치환 건수와 제목을 확인한 뒤 변경을 적용하세요." : "현재 기록에서 바꿀 표기를 찾지 못했습니다."
+                entry.answer = result.hasChanges ? "치환 건수와 제목을 확인한 뒤 변경을 적용해 주세요." : "현재 기록에서 바꿀 표기를 찾지 못했어요."
             } catch {
                 entry.status = "failed"; entry.error = error.localizedDescription
             }
@@ -177,7 +177,7 @@ struct EditingChatEntry: Codable, Identifiable {
             } catch {
                 guard sessionID == capture.sessionID, let i = entries.firstIndex(where: { $0.id == id }) else { return }
                 entries[i].status = "failed"
-                entries[i].error = error is CancellationError ? "요청을 중단했습니다. 입력창에서 새 요청을 보낼 수 있습니다." : error.localizedDescription
+                entries[i].error = error is CancellationError ? "요청을 중단했어요. 입력창에서 새 요청을 보낼 수 있어요." : error.localizedDescription
             }
             save()
         }
@@ -194,7 +194,7 @@ struct EditingChatEntry: Codable, Identifiable {
                 if !result.hasChanges {
                     entries[i].bulkPreview = result.preview
                     entries[i].status = "answered"; entries[i].error = nil
-                    entries[i].answer = "현재 기록에는 적용할 변경이 없습니다."
+                    entries[i].answer = "현재 기록에는 적용할 변경이 없어요."
                     save(); return
                 }
                 receipt = try commitBulk(result, current)
@@ -245,6 +245,7 @@ enum EditingChatGenerator {
         One proposal can edit multiple transcript/speaker documents OR minutes OR any number of selected materials. Material changes and new material additions can be combined in one proposal. For requests spanning transcript, minutes and materials, ask which kind to edit first. Material chunks preserve all content outside the requested edits; to append content to an existing material, edit its appropriate chunk, preserving that chunk's original content. Minutes and material edits are saved as editable copies. Include only real changes.
         To add new meeting background/reference notes explicitly requested by the user, use additions with a short title (1...160 characters) and the full text (1...200000 characters), up to 20 documents. Keep distinct materials as separate additions. Use additions only for explicit requests to add/store meeting material or context; ordinary questions and transcript/minutes edits use an empty additions array. Preserve user-supplied facts and distinguish plans/background from actual spoken decisions. Use only content supplied in USER_REQUEST or DOCUMENTS. Existing documents are updated through changes with their exact IDs; never fabricate target IDs. An empty DOCUMENTS list still allows new material additions. A material creation is a proposal until the user applies it.
         If omittedCount>0, only part of the meeting is available. State this scope and ask for a narrower target for requests covering all content. Never claim to edit or summarize the whole meeting using a partial capture. For answers cite the document title/time in plain language. Keep the answer short. Prior applied/undone states in HISTORY matter for follow-up references.
+        Write answer in short, clear Korean 해요체 with a concrete next action. Preserve quotations, names, numbers and uncertainty. Keep changes.after and additions.text in the document style requested by the user, including 한다체 for reports and minutes.
         USER_REQUEST:
         \(String(decoding: command, as: UTF8.self))
         HISTORY:

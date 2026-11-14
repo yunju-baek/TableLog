@@ -11,7 +11,7 @@ struct MeetingMaterialsView: View {
     private func pasteCapture() {
         guard let image = NSImage(pasteboard:NSPasteboard.general), let tiff=image.tiffRepresentation,
               let bitmap=NSBitmapImageRep(data:tiff), let png=bitmap.representation(using:.png,properties:[:]) else {
-            materials.reportCaptureError("클립보드에 이미지 캡처를 복사한 뒤 다시 시도하세요.")
+            materials.reportCaptureError("클립보드에 이미지 캡처를 복사한 뒤 다시 시도해 주세요.")
             return
         }
         do {
@@ -27,7 +27,7 @@ struct MeetingMaterialsView: View {
             HStack {
                 Button("텍스트 추가",systemImage:"text.badge.plus") { showTextEntry=true }
                 Button("파일 추가",systemImage:"doc.badge.plus") { materials.pickFiles(provider:model.meeting.provider,settings:model.codexSettings) }
-                    .help("PDF · 이미지 · TXT · MD 파일을 여러 개 선택할 수 있습니다.")
+                    .help("PDF · 이미지 · TXT · MD 파일을 여러 개 선택할 수 있어요.")
                 Button("캡처 붙여넣기",systemImage:"doc.on.clipboard") { pasteCapture() }
                 Button("폴더 연결",systemImage:"folder.badge.plus") { materials.pickFolders(provider:model.meeting.provider,settings:model.codexSettings) }
                 Spacer()
@@ -38,9 +38,9 @@ struct MeetingMaterialsView: View {
                 TextField("자료 URL · https://…",text:$url).textFieldStyle(.roundedBorder)
                 Button("URL 추가") { materials.importURL(url,provider:model.meeting.provider,settings:model.codexSettings) }.disabled(url.isEmpty)
             }
-            Text("녹음 중에도 자료를 첨부할 수 있습니다. 추출문은 이후 AI 교정과 회의록에 쓰이고, 분석된 용어는 녹음 종료 후 Qwen 전사에 반영됩니다.")
+            Text("녹음 중에도 자료를 첨부할 수 있어요. 추출문은 이후 AI 교정과 회의록에 쓰이고, 분석된 용어는 녹음 종료 후 Qwen 전사에 반영돼요.")
                 .font(.caption).foregroundStyle(AppTheme.muted)
-            Text(model.meeting.provider == .codex ? "맥락 분석·회의록 작성: \(model.codexSettings.provider.title) · 선택 자료의 추출문과 발언을 \(model.codexSettings.provider.destination)로 전달합니다." : "맥락 분석을 사용하려면 ‘회의 설정·참석자’에서 ‘선택한 AI CLI’를 선택하세요.")
+            Text(model.meeting.provider == .codex ? "맥락 분석·회의록 작성: \(model.codexSettings.provider.title) · 선택 자료의 추출문과 발언을 \(model.codexSettings.provider.destination)로 전달해요." : "맥락 분석을 사용하려면 ‘회의 설정·참석자’에서 ‘선택한 AI CLI’를 선택해 주세요.")
                 .font(.caption).foregroundStyle(AppTheme.muted)
             HStack { if materials.busy {ProgressView().controlSize(.small)};Text(materials.status).font(.caption) }
             if materials.queuedFiles>0 { Text("추가 대기 중 · \(materials.queuedFiles)개 자료").font(.caption).foregroundStyle(AppTheme.violet) }
@@ -49,20 +49,20 @@ struct MeetingMaterialsView: View {
                 DisclosureGroup("연결한 폴더 · \(materials.folders.count)개") {
                     VStack(alignment:.leading,spacing:8) {
                         HStack {
-                            Text("15초마다 변경을 확인합니다. 안정화된 파일의 새 버전을 보관하며, 이전 버전의 근거도 계속 열 수 있습니다.").font(.caption).foregroundStyle(AppTheme.muted)
+                            Text("15초마다 변경을 확인해요. 안정화된 파일의 새 버전을 보관하며, 이전 버전의 근거도 계속 열 수 있어요.").font(.caption).foregroundStyle(AppTheme.muted)
                             Spacer()
                             Button(materials.watchingFolders ? "지금 확인" : "자동 확인 재개") {
                                 if materials.watchingFolders {materials.refreshFolders(provider:model.meeting.provider,settings:model.codexSettings)}
                                 else {materials.resumeFolderWatching(provider:model.meeting.provider,settings:model.codexSettings)}
                             }.disabled(materials.scanningFolders)
                         }
-                        Text("폴더당 최대 1,000개 자료를 수집합니다. 숨김 항목·개발 산출물·앱 패키지·심볼릭 링크는 수집 대상에서 제외됩니다.").font(.caption2).foregroundStyle(AppTheme.muted)
+                        Text("폴더당 최대 1,000개 자료를 수집해요. 숨김 항목·개발 산출물·앱 패키지·심볼릭 링크는 수집 대상에서 제외돼요.").font(.caption2).foregroundStyle(AppTheme.muted)
                         ForEach(materials.folders) { folder in
                             VStack(alignment:.leading,spacing:5) {
                                 HStack {
-                                    Toggle(folder.title+" · 자료 선택",isOn:Binding(get:{folder.enabled},set:{materials.selectFolder(folder.id,enabled:$0)})).disabled(materials.busy).help("현재 자료와 새로 추가되는 자료를 이번 회의에 선택합니다. 파일별 선택은 아래 목록에서 조정합니다.")
+                                    Toggle(folder.title+" · 자료 선택",isOn:Binding(get:{folder.enabled},set:{materials.selectFolder(folder.id,enabled:$0)})).disabled(materials.busy).help("현재 자료와 새로 추가되는 자료를 이번 회의에 선택해요. 파일별 선택은 아래 목록에서 조정해요.")
                                     Toggle("하위 폴더",isOn:Binding(get:{folder.recursive},set:{materials.setRecursive(folder.id,recursive:$0,provider:model.meeting.provider,settings:model.codexSettings)})).disabled(materials.busy)
-                                    Button("연결 해제") {materials.disconnectFolder(folder.id)}.disabled(materials.busy).help("보관한 자료와 이전 버전은 유지합니다.")
+                                    Button("연결 해제") {materials.disconnectFolder(folder.id)}.disabled(materials.busy).help("보관한 자료와 이전 버전은 유지해요.")
                                 }
                                 Text(folder.path).font(.caption2).foregroundStyle(AppTheme.muted).textSelection(.enabled)
                                 Text(folder.status).font(.caption)
@@ -93,7 +93,7 @@ struct MeetingMaterialsView: View {
             HSplitView {
                 ScrollView {
                     VStack(alignment:.leading,spacing:10) {
-                        if materials.documents.isEmpty { Text("회의 안건과 배경을 텍스트로 붙여넣거나 파일·웹 자료를 추가하세요.").foregroundStyle(.secondary).padding() }
+                        if materials.documents.isEmpty { Text("회의 안건과 배경을 텍스트로 붙여넣거나 파일·웹 자료를 추가해 주세요.").foregroundStyle(.secondary).padding() }
                         ForEach(showVersions ? materials.documents : materials.currentDocuments) { doc in
                             VStack(alignment:.leading,spacing:6) {
                                 Toggle(doc.title,isOn:Binding(get:{doc.enabled},set:{materials.select(doc.id,enabled:$0)})).disabled(materials.busy || !doc.currentVersion)

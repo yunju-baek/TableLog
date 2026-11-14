@@ -295,10 +295,10 @@ enum VoiceMatching {
     @Published private(set) var pendingClipCount = 0
     @Published private(set) var pendingRevision = UUID()
     @Published private(set) var events: [VoiceIdentityEvent] = []
-    @Published var status = "목소리를 등록하면 다음 대화에서 이름을 제안합니다."
+    @Published var status = "목소리를 등록하면 다음 대화에서 이름을 제안해요."
     @Published private(set) var busy = false
     @Published private(set) var learningBusy = false
-    @Published private(set) var learningStatus = "이름을 확인한 발언을 추가하면 개인별 목소리 분류기를 갱신합니다."
+    @Published private(set) var learningStatus = "이름을 확인한 발언을 추가하면 개인별 목소리 분류기를 갱신해요."
     @Published private(set) var recording = false
     @Published private(set) var recordingSeconds: Double = 0
     @Published private(set) var pendingSeconds: Double = 0
@@ -406,7 +406,7 @@ enum VoiceMatching {
         trainingCandidates=VoiceMatching.candidates(snapshot)
         candidates=trainingCandidates.filter { $0.end >= snapshot.audioSeconds-170 }
         if !pendingClips.isEmpty, !pendingClips.allSatisfy({ clip in trainingCandidates.contains(where: { $0.id == clip.candidate.id }) }) {
-            clearPending();status="화자 구간이 갱신되었습니다. 학습할 발언을 다시 선택하세요."
+            clearPending();status="화자 구간이 갱신됐어요. 학습할 발언을 다시 선택해 주세요."
         }
         var changed=false
         for (speaker,items) in evidence {
@@ -448,7 +448,7 @@ enum VoiceMatching {
                     pcm=try await Task.detached(priority:.utility) {
                         try VoiceEmbedding.readAudio(savedAudio,start:candidate.start,duration:candidate.end-candidate.start)
                     }.value
-                } else { throw VoiceFailure(message:"다음 발언의 목소리를 확인합니다.") }
+                } else { throw VoiceFailure(message:"다음 발언의 목소리를 확인해요.") }
                 guard !Task.isCancelled,self.generation==generation,self.session==session else { return }
                 let vector: [Float]
                 if let extractEmbedding=self.extractEmbedding { vector=try await extractEmbedding(pcm) }
@@ -481,7 +481,7 @@ enum VoiceMatching {
                             self.record(speaker:candidate.speaker,candidate:candidate,name:profile.name,score:score,action:"suggested")
                         }
                         self.status="화자 \(candidate.speaker) · \(profile.name) 추정 · \(items.count)개 구간 확인"
-                    } else { self.status="화자 \(candidate.speaker) · 다음 발언에서 목소리를 함께 확인합니다." }
+                    } else { self.status="화자 \(candidate.speaker) · 다음 발언에서 목소리를 함께 확인해요." }
                     self.didChange?()
                 } else {
                     self.evidence[candidate.speaker]=[];self.suggestions[candidate.speaker]=nil
@@ -525,7 +525,7 @@ enum VoiceMatching {
         guard !busy, !recording else { return }
         clearPending()
         guard let first=selected.first, selected.allSatisfy({ $0.speaker == first.speaker }) else {
-            status="3초 이상 이어진 단일 화자 발언이 준비되면 선택할 수 있습니다."; return
+            status="3초 이상 이어진 단일 화자 발언이 준비되면 선택할 수 있어요."; return
         }
         let session=self.session, revision=pendingRevision
         busy=true
@@ -546,14 +546,14 @@ enum VoiceMatching {
             }
             defer { busy=false }
             guard self.session==session, pendingRevision==revision else { return }
-            guard !clips.isEmpty else { status="선명한 3초 이상의 발언을 다시 선택하세요."; return }
+            guard !clips.isEmpty else { status="선명한 3초 이상의 발언을 다시 선택해 주세요."; return }
             guard clips.allSatisfy({ clip in trainingCandidates.contains(where: { $0.id == clip.candidate.id }) }) else {
-                status="화자 구간이 갱신되었습니다. 발언을 다시 선택하세요."; return
+                status="화자 구간이 갱신됐어요. 발언을 다시 선택해 주세요."; return
             }
             pendingClips=clips;pendingSession=session;pendingSpeaker=first.speaker
             pendingPCM=clips.flatMap(\.pcm);pendingSeconds=Double(pendingPCM.count)/16000
             pendingClipCount=clips.count;pendingRevision=UUID()
-            status="화자 \(first.speaker) · \(clips.count)개 발언 준비. 목소리와 이름을 확인한 뒤 학습하세요."
+            status="화자 \(first.speaker) · \(clips.count)개 발언 준비. 목소리와 이름을 확인한 뒤 학습해 주세요."
         }
     }
     func loadFile(_ url:URL,start:Double,duration:Double) {
@@ -564,7 +564,7 @@ enum VoiceMatching {
                 let pcm=try await Task.detached(priority:.utility) { try VoiceEmbedding.readAudio(url,start:start,duration:duration) }.value
                 try VoiceEmbedding.quality(pcm)
                 guard pendingRevision==revision else { busy=false;return }
-                pendingPCM=pcm;pendingSource="file:\(Self.pcmDigest(pcm))";pendingSeconds=Double(pcm.count)/16000;pendingRevision=UUID();status="선택 음성을 들어보고 한 사람의 발언인지 확인하세요."
+                pendingPCM=pcm;pendingSource="file:\(Self.pcmDigest(pcm))";pendingSeconds=Double(pcm.count)/16000;pendingRevision=UUID();status="선택 음성을 들어보고 한 사람의 발언인지 확인해 주세요."
             } catch { status=error.localizedDescription }
             busy=false
         }
@@ -589,7 +589,7 @@ enum VoiceMatching {
             try enrollmentMic.start(deviceID:device == 0 ? nil : device,onAudio:{ [enrollmentAudio] pcm in enrollmentAudio.append(pcm,session:id)
                 Task { @MainActor [weak self] in self?.recordingSeconds += Double(pcm.count)/16000 }
             },onLevel:{ _ in },onError:{ [weak self] error in Task { @MainActor in self?.status=error.localizedDescription;self?.stopRecording() } })
-            recording=true;status="한 사람의 목소리로 여러 문장을 읽어 주세요. 30초에서 자동 종료합니다."
+            recording=true;status="한 사람의 목소리로 여러 문장을 읽어 주세요. 30초에서 자동 종료해요."
             recordingTimer=Timer.scheduledTimer(withTimeInterval:0.3,repeats:true) { [weak self] _ in Task { @MainActor in if let self,self.recordingSeconds>=30 { self.stopRecording() } } }
         } catch { status=error.localizedDescription }
     }
@@ -598,7 +598,7 @@ enum VoiceMatching {
         enrollmentMic.stop { [weak self] in
             guard let self else { return };self.recording=false
             if let pcm=self.enrollmentAudio.read(session:self.enrollmentSession,start:0,end:min(30,self.recordingSeconds)) {
-                self.pendingPCM=pcm;self.pendingSeconds=Double(pcm.count)/16000;self.pendingRevision=UUID();self.status="녹음 완료 · 음성을 확인한 뒤 등록하세요."
+                self.pendingPCM=pcm;self.pendingSeconds=Double(pcm.count)/16000;self.pendingRevision=UUID();self.status="녹음 완료 · 음성을 확인한 뒤 등록해 주세요."
             }
         }
     }
@@ -652,10 +652,10 @@ enum VoiceMatching {
     func enroll(name:String,existing:UUID?,rebuild:Bool=false) {
         guard !busy,!recording else { return }
         let cleaned=String(name.trimmingCharacters(in:.whitespacesAndNewlines).prefix(64))
-        guard !cleaned.isEmpty else { status="목소리에 연결할 이름을 입력하세요.";return }
-        if existing==nil,vault.profiles.contains(where:{$0.name==cleaned}) { status="같은 이름의 프로필을 선택해 음성을 추가하세요.";return }
-        guard existing != nil || vault.profiles.count < 200 else { status="등록 가능한 프로필은 200개입니다.";return }
-        if let existing, !vault.profiles.contains(where:{$0.id==existing}) { status="학습할 프로필을 다시 선택하세요.";return }
+        guard !cleaned.isEmpty else { status="목소리에 연결할 이름을 입력해 주세요.";return }
+        if existing==nil,vault.profiles.contains(where:{$0.name==cleaned}) { status="같은 이름의 프로필을 선택해 음성을 추가해 주세요.";return }
+        guard existing != nil || vault.profiles.count < 200 else { status="등록 가능한 프로필은 200개예요.";return }
+        if let existing, !vault.profiles.contains(where:{$0.id==existing}) { status="학습할 프로필을 다시 선택해 주세요.";return }
         cancelLearning(clearBindings:false)
         let pcm=pendingPCM, clips=pendingClips, selectedSession=pendingSession, speaker=pendingSpeaker, sourcePrefix=pendingSource
         let revision=pendingRevision, operationGeneration=learningGeneration
@@ -690,22 +690,22 @@ enum VoiceMatching {
                     try VoiceEmbedding.writeM4A(chunk,to:url);try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:url.path)
                 }
                 guard !closed,learningGeneration==operationGeneration,pendingRevision==revision,selectedSession == nil || selectedSession==session else {
-                    throw VoiceFailure(message:"회의 또는 화자 구간이 갱신되었습니다. 발언을 다시 선택하세요.")
+                    throw VoiceFailure(message:"회의 또는 화자 구간이 갱신됐어요. 발언을 다시 선택해 주세요.")
                 }
                 guard !samples.isEmpty else {
-                    if qualityRejected == chunks.count { throw VoiceFailure(message:"학습 가능한 음성을 확인해 주세요. 3초 이상 선명하게 말한 구간을 선택하세요.") }
-                    throw VoiceFailure(message:"선택한 음성은 이미 보관되어 있습니다. 제외한 자료는 학습 자료 복원으로 추가하세요.")
+                    if qualityRejected == chunks.count { throw VoiceFailure(message:"학습 가능한 음성을 확인해 주세요. 3초 이상 선명하게 말한 구간을 선택해 주세요.") }
+                    throw VoiceFailure(message:"선택한 음성은 이미 보관돼 있어요. 제외한 자료는 학습 자료 복원으로 추가해 주세요.")
                 }
-                if let latest=snapshot,clips.contains(where:{VoiceMatching.hasRelabel($0.candidate,in:latest)}) { throw VoiceFailure(message:"화자 구간이 갱신되었습니다. 발언을 다시 선택하세요.") }
+                if let latest=snapshot,clips.contains(where:{VoiceMatching.hasRelabel($0.candidate,in:latest)}) { throw VoiceFailure(message:"화자 구간이 갱신됐어요. 발언을 다시 선택해 주세요.") }
                 var updated=vault
                 let profileID=existing ?? UUID()
                 let prior=updated.profiles.first(where:{$0.id==profileID}) ?? VoiceProfile(id:profileID,name:cleaned,samples:[])
                 var profile=prior
-                guard profile.samples.count+profile.removedSamples.count+samples.count<=Self.maximumSamples else { throw VoiceFailure(message:"프로필당 원음 1,000개를 보관합니다. 추가 학습용 프로필을 만들어 주세요.") }
+                guard profile.samples.count+profile.removedSamples.count+samples.count<=Self.maximumSamples else { throw VoiceFailure(message:"프로필당 원음 1,000개를 보관해요. 추가 학습용 프로필을 만들어 주세요.") }
                 if rebuild { profile.beforeRebuild=profile.samples.map(\.id);profile.removedSamples += profile.samples;profile.samples=[] }
                 profile.samples += samples
                 profile=await revisedProfile(profile,prior:prior,action:rebuild ? "rebuild" : "confirmed_enrollment",added:samples.map(\.id),otherProfiles:updated.profiles.filter{$0.id != profileID})
-                guard !closed,learningGeneration==operationGeneration,pendingRevision==revision,selectedSession == nil || selectedSession==session else { throw VoiceFailure(message:"학습 대상이 갱신되었습니다. 다시 확인해 주세요.") }
+                guard !closed,learningGeneration==operationGeneration,pendingRevision==revision,selectedSession == nil || selectedSession==session else { throw VoiceFailure(message:"학습 대상이 갱신됐어요. 다시 확인해 주세요.") }
                 updated=vault
                 if let index=updated.profiles.firstIndex(where:{$0.id==profileID}) { updated.profiles[index]=profile } else { updated.profiles.append(profile) }
                 try commit(updated);committed=true
@@ -725,8 +725,8 @@ enum VoiceMatching {
     func configureLearning(enabled:Bool) {
         var updated=vault;updated.continuousLearningEnabled=enabled
         do { try commit(updated) } catch { learningStatus=error.localizedDescription;return }
-        if enabled { learningStatus="확인한 화자의 새 발언을 누적 학습합니다.";scheduleConfirmedLearning() }
-        else { cancelLearning(clearBindings:false);learningStatus="자동 수집 일시 정지 · 직접 추가 학습을 사용할 수 있습니다." }
+        if enabled { learningStatus="확인한 화자의 새 발언을 누적 학습해요.";scheduleConfirmedLearning() }
+        else { cancelLearning(clearBindings:false);learningStatus="자동 수집 일시 정지 · 직접 추가 학습을 사용할 수 있어요." }
         didChange?()
     }
     func cancelLearning(clearBindings:Bool = true) {
@@ -742,7 +742,7 @@ enum VoiceMatching {
         let binding=ConfirmedBinding(profileID:profileID,name:profile.name,sessionID:session,token:UUID())
         confirmedBindings[speaker]=binding
         if let savedAudio { matchingSavedAudio=savedAudio }
-        guard vault.continuousLearningEnabled else { learningStatus="이름 확인 완료 · 자동 수집은 설정에서 켤 수 있습니다.";return }
+        guard vault.continuousLearningEnabled else { learningStatus="이름 확인 완료 · 자동 수집은 설정에서 켤 수 있어요.";return }
         scheduleConfirmedLearning(explicitSpeaker:speaker)
         if let learningTask { await learningTask.value }
     }
@@ -810,12 +810,12 @@ enum VoiceMatching {
                 try VoiceEmbedding.writeM4A(pcm,to:file);try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:file.path)
                 added.append(sample)
             }
-            guard !added.isEmpty else { learningStatus="\(profile.name) · 선명하고 새로운 발언을 기다립니다.";return }
+            guard !added.isEmpty else { learningStatus="\(profile.name) · 선명하고 새로운 발언을 기다려요.";return }
             guard !Task.isCancelled,!closed,self.session==sessionID,learningGeneration==generation,
                   confirmedBindings[selected[0].speaker]?.token==binding.token,vault.continuousLearningEnabled,
                   let i=vault.profiles.firstIndex(where:{$0.id==profile.id}),vault.profiles[i].name==binding.name,
                   vault.profiles[i].samples.map(\.id)==profile.samples.map(\.id) else { return }
-            guard profile.samples.count+profile.removedSamples.count+added.count<=Self.maximumSamples else { learningStatus="프로필당 보관 상한 1,000개에 도달했습니다. 기존 학습 자료를 유지합니다.";return }
+            guard profile.samples.count+profile.removedSamples.count+added.count<=Self.maximumSamples else { learningStatus="프로필당 보관 상한 1,000개에 도달했어요. 기존 학습 자료를 유지해요.";return }
             var changed=profile;changed.samples+=added
             let learned=await revisedProfile(changed,prior:profile,action:explicit ? "confirmed_enrollment" : "confirmed_followup",added:added.map(\.id),otherProfiles:vault.profiles.filter{$0.id != profile.id})
             guard !Task.isCancelled,!closed,self.session==sessionID,learningGeneration==generation,
@@ -852,7 +852,7 @@ enum VoiceMatching {
                 priorActiveIDs:updated.profiles[i].samples.map(\.id),resultingSampleCount:updated.profiles[i].samples.count,
                 revision:(prior.learningHistory.map(\.revision).max() ?? 0)+1,confirmedName:prior.name))
         }
-        do { try commit(updated);learningStatus="화자 구간 갱신 · 해당 학습 음성을 확인 대기로 이동했습니다.";invalidate();didChange?() }
+        do { try commit(updated);learningStatus="화자 구간 갱신 · 학습 음성을 확인 대기로 이동했어요.";invalidate();didChange?() }
         catch { learningStatus=error.localizedDescription }
     }
     func canRollbackLearning(profileID:UUID) -> Bool {
@@ -871,7 +871,7 @@ enum VoiceMatching {
         guard restored.count==batch.priorActiveIDs.count else { learningStatus="복원할 원본 음성 자료를 확인해 주세요.";return }
         updated.profiles[i].samples=restored;updated.profiles[i].removedSamples=all.filter{!batch.priorActiveIDs.contains($0.id)}
         updated.profiles[i].learnedModel=batch.beforeModel;updated.profiles[i].learningHistory[j].rolledBackAt=Date();updated.profiles[i].beforeRebuild=nil
-        do { try commit(updated);learningStatus="\(updated.profiles[i].name) · 직전 학습을 되돌리고 원음을 보관했습니다.";requestRematch(savedAudio:matchingSavedAudio,reconsiderRejected:false) }
+        do { try commit(updated);learningStatus="\(updated.profiles[i].name) · 직전 학습을 되돌리고 원음을 보관했어요.";requestRematch(savedAudio:matchingSavedAudio,reconsiderRejected:false) }
         catch { learningStatus=error.localizedDescription }
     }
     private func editProfile(_ id:UUID,action:String,force:Bool=false,change:@escaping (inout VoiceProfile)->Void) {
@@ -885,7 +885,7 @@ enum VoiceMatching {
             let learned=await revisedProfile(changed,prior:prior,action:action,added:changed.samples.filter{sample in !prior.samples.contains{$0.id==sample.id}}.map(\.id),otherProfiles:vault.profiles.filter{$0.id != id})
             guard !closed,learningGeneration==generation,let i=vault.profiles.firstIndex(where:{$0.id==id}) else { return }
             var updated=vault;updated.profiles[i]=learned
-            do { try commit(updated);learningStatus="\(learned.name) · 학습 자료 \(learned.samples.count)개로 갱신했습니다.";requestRematch(savedAudio:matchingSavedAudio,reconsiderRejected:false) }
+            do { try commit(updated);learningStatus="\(learned.name) · 학습 자료 \(learned.samples.count)개로 갱신했어요.";requestRematch(savedAudio:matchingSavedAudio,reconsiderRejected:false) }
             catch { learningStatus=error.localizedDescription }
         }
     }
@@ -906,7 +906,7 @@ enum VoiceMatching {
     func archive(_ id:UUID) {
         guard !busy else{return};cancelLearning(clearBindings:false);var updated=vault
         guard let i=updated.profiles.firstIndex(where:{$0.id==id}) else{return}
-        updated.archived.append(updated.profiles.remove(at:i));mutate(updated);requestRematch(savedAudio:matchingSavedAudio,reconsiderRejected:false);status="프로필을 보관함으로 이동했습니다. 복원할 수 있습니다."
+        updated.archived.append(updated.profiles.remove(at:i));mutate(updated);requestRematch(savedAudio:matchingSavedAudio,reconsiderRejected:false);status="프로필을 보관함으로 이동했어요. 복원할 수 있어요."
     }
     func restore(_ id:UUID) {
         guard !busy else{return};cancelLearning(clearBindings:false);var updated=vault

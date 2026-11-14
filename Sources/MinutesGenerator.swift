@@ -23,8 +23,8 @@ enum MinutesGenerationError: LocalizedError {
     case response, unavailableProvider
     var errorDescription: String? {
         switch self {
-        case .response: return "회의록 응답의 근거·형식을 확인해야 합니다. 직전 회의록을 보존했습니다."
-        case .unavailableProvider: return "이전 로컬 설정이 보관되어 있습니다. AI CLI를 선택한 뒤 생성을 실행해 주세요."
+        case .response: return "회의록 응답의 근거·형식을 확인해야 해요. 직전 회의록을 보존했어요."
+        case .unavailableProvider: return "이전 로컬 설정이 보관돼 있어요. AI CLI를 선택한 뒤 생성을 실행해 주세요."
         }
     }
 }

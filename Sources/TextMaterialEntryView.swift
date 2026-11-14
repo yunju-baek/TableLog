@@ -16,7 +16,7 @@ struct TextMaterialEntryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("텍스트 자료 추가").font(.title2.bold())
-            Text("회의 안건·배경·참고 내용을 붙여넣으세요. 추가할 때마다 별도 자료로 저장하고 이번 회의에 함께 선택합니다.")
+            Text("회의 안건·배경·참고 내용을 붙여넣어 주세요. 추가할 때마다 별도 자료로 저장하고 이번 회의에 함께 선택해요.")
                 .font(.callout).foregroundStyle(AppTheme.muted)
             TextField("자료 제목 · 생략하면 본문 첫 줄 사용", text: $title)
                 .textFieldStyle(.roundedBorder).focused($focused, equals: .title).accessibilityLabel("텍스트 자료 제목")
@@ -30,8 +30,8 @@ struct TextMaterialEntryView: View {
                 Spacer()
                 Text("저장 후 바로 검색·참조 · AI 맥락 분석은 자료 창에서 실행").font(.caption).foregroundStyle(AppTheme.muted)
             }
-            if title.count > 160 || title.contains(where: \.isNewline) { Text("제목은 한 줄로 160자까지 입력하세요.").font(.caption).foregroundStyle(AppTheme.rose) }
-            if materials.busy { Text("진행 중인 자료 작업이 끝나면 추가할 수 있습니다. 입력 내용은 이 창에 유지됩니다.").font(.caption).foregroundStyle(AppTheme.muted) }
+            if title.count > 160 || title.contains(where: \.isNewline) { Text("제목은 한 줄로 160자까지 입력해 주세요.").font(.caption).foregroundStyle(AppTheme.rose) }
+            if materials.busy { Text("진행 중인 자료 작업이 끝나면 추가할 수 있어요. 입력 내용은 이 창에 유지돼요.").font(.caption).foregroundStyle(AppTheme.muted) }
             if let error { Text(error).font(.callout).foregroundStyle(AppTheme.rose).textSelection(.enabled) }
             if let notice { Text(notice).font(.callout).foregroundStyle(AppTheme.violet) }
             HStack {
@@ -51,7 +51,7 @@ struct TextMaterialEntryView: View {
             added(id); error = nil
             if continueEditing {
                 title = ""; text = ""; focused = .text
-                notice = "자료를 추가했습니다. 다음 자료를 이어서 입력하세요. 현재 \(materials.context.documents.count)개 선택."
+                notice = "자료를 추가했어요. 다음 자료를 이어서 입력해 주세요. 현재 \(materials.context.documents.count)개 선택."
             } else { dismiss() }
         } catch { self.error = error.localizedDescription }
     }

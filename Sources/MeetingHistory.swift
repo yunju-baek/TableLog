@@ -54,7 +54,7 @@ struct MeetingHistoryError: LocalizedError {
     private var deletionRevision = 0
     @Published private(set) var loading = false
     @Published private(set) var error: String?
-    @Published private(set) var status = "지난 회의를 불러올 수 있습니다."
+    @Published private(set) var status = "지난 회의를 불러올 수 있어요."
     private let transcripts: URL
     private let minutes: URL
     private let assistant: URL
@@ -457,8 +457,8 @@ enum MeetingHistoryReader {
             if let name = segment.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty, speaker > 0 { names[speaker] = name }
             result.append(MeetingUtterance(id: id!, speaker: speaker, start: start, end: end, text: text))
         }
-        if dropped > 0 { warnings.append("시간 정보를 확인할 발언 \(dropped)개를 별도로 남겼습니다. 원본 JSON에서 확인할 수 있습니다.") }
-        if reassigned > 0 { warnings.append("중복·누락 발언 식별자 \(reassigned)개에 열람용 식별자를 부여했습니다.") }
+        if dropped > 0 { warnings.append("시간 정보를 확인할 발언 \(dropped)개를 별도로 남겼어요. 원본 JSON에서 확인할 수 있어요.") }
+        if reassigned > 0 { warnings.append("중복·누락 발언 식별자 \(reassigned)개에 열람용 식별자를 부여했어요.") }
         return (result.sorted { $0.start == $1.start ? $0.id < $1.id : $0.start < $1.start }, names)
     }
 
@@ -472,7 +472,7 @@ enum MeetingHistoryReader {
         if let url = entry.transcriptURL {
             do {
                 let value = try JSONDecoder().decode(Transcript.self, from: sourceData(url))
-                guard (value.id ?? uuid(url)) == entry.id else { throw MeetingHistoryError(message: "목록의 회의 식별자와 원본 기록이 달라졌습니다.") }
+                guard (value.id ?? uuid(url)) == entry.id else { throw MeetingHistoryError(message: "목록의 회의 식별자와 원본 기록이 달라졌어요.") }
                 transcript = value; transcriptURL = url
             } catch { warnings.append("전사 원본 확인: " + error.localizedDescription) }
         }
@@ -480,7 +480,7 @@ enum MeetingHistoryReader {
             do {
                 let data = try sourceData(url)
                 let value = try JSONDecoder().decode(Record.self, from: data)
-                guard (value.id ?? uuid(url)) == entry.id else { throw MeetingHistoryError(message: "목록의 회의 식별자와 회의록 기록이 달라졌습니다.") }
+                guard (value.id ?? uuid(url)) == entry.id else { throw MeetingHistoryError(message: "목록의 회의 식별자와 회의록 기록이 달라졌어요.") }
                 recordDTO = value; recordURL = url; record = try? JSONDecoder().decode(MeetingWorkRecord.self, from: data)
             } catch { warnings.append("회의록 기록 확인: " + error.localizedDescription) }
         }
@@ -490,7 +490,7 @@ enum MeetingHistoryReader {
         var markdown = ""
         if let minutesURL { do { markdown = String(decoding: try sourceData(minutesURL, limit: 20 * 1024 * 1024), as: UTF8.self) } catch { warnings.append("회의록 파일 확인: " + error.localizedDescription) } }
         if MeetingMinutesRenderer.isPendingDraft(markdown) { markdown="";minutesURL=nil }
-        guard transcript != nil || recordDTO != nil || !markdown.isEmpty else { throw MeetingHistoryError(message: "회의 원본을 찾을 수 없습니다. 저장 위치를 확인한 뒤 목록을 새로고침해 주세요.") }
+        guard transcript != nil || recordDTO != nil || !markdown.isEmpty else { throw MeetingHistoryError(message: "회의 원본을 찾을 수 없어요. 저장 위치를 확인한 뒤 목록을 새로고침해 주세요.") }
         // Saved transcripts already contain projected manual edits and effective speaker IDs.
         // Replaying edit logs here would apply the same operation twice.
         let transcriptTime = transcript?.saved.flatMap(date)
@@ -627,6 +627,6 @@ actor MeetingHistorySnapshotCache {
             }
             return snapshot
         }
-        throw MeetingHistoryError(message: "회의 기록을 저장하는 중입니다. 저장이 끝난 뒤 다시 열어 주세요.")
+        throw MeetingHistoryError(message: "회의 기록을 저장하는 중이에요. 저장이 끝난 뒤 다시 열어 주세요.")
     }
 }

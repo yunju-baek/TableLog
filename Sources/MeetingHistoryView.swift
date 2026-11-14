@@ -50,7 +50,7 @@ struct MeetingHistoryView: View {
                     .frame(width: 46, height: 46).background(AppTheme.lavender, in: RoundedRectangle(cornerRadius: 13))
                 VStack(alignment: .leading, spacing: 4) {
                     Text("지난 회의").font(.system(size: 22, weight: .bold))
-                    Text("저장한 회의를 찾아보고, 재가공본으로 편집을 이어갑니다.")
+                    Text("저장한 회의를 찾아보고, 재가공본으로 편집을 이어가요.")
                         .font(.system(size: 12)).foregroundStyle(AppTheme.muted)
                 }
                 Spacer()
@@ -84,7 +84,7 @@ struct MeetingHistoryView: View {
             Button("삭제한 회의로 이동", role: .destructive) { changeDeletion(entry, deleted: true) }
             Button("취소", role: .cancel) { pendingDelete = nil }
         } message: { entry in
-            Text("선택한 회의: \(entry.title)\n\n삭제한 회의로 옮깁니다. 회의록·전사·녹음·연결 자료는 보관하며, 삭제한 회의에서 복원할 수 있습니다.")
+            Text("선택한 회의: \(entry.title)\n\n삭제한 회의로 옮겨요. 회의록·전사·녹음·연결 자료는 보관하며, 삭제한 회의에서 복원할 수 있어요.")
         }
     }
 
@@ -113,9 +113,9 @@ struct MeetingHistoryView: View {
                 Text(error).font(.system(size: 11)).foregroundStyle(AppTheme.rose).textSelection(.enabled)
             }
             if history.loading && displayedItems.isEmpty {
-                emptyState("저장한 회의를 찾고 있습니다", icon: "doc.text.magnifyingglass")
+                emptyState("저장한 회의를 찾고 있어요", icon: "doc.text.magnifyingglass")
             } else if filtered.isEmpty {
-                emptyState(search.isEmpty ? (showingDeleted ? "삭제한 회의가 여기에 표시됩니다" : "저장한 회의가 여기에 표시됩니다") : "검색어에 맞는 회의를 확인해 주세요", icon: "tray")
+                emptyState(search.isEmpty ? (showingDeleted ? "삭제한 회의가 여기에 표시돼요" : "저장한 회의가 여기에 표시돼요") : "검색어에 맞는 회의를 확인해 주세요", icon: "tray")
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
@@ -165,7 +165,7 @@ struct MeetingHistoryView: View {
 
     @ViewBuilder private var detail: some View {
         if loadingDetail {
-            VStack(spacing: 12) { ProgressView(); Text("회의 기록을 불러오고 있습니다").font(.system(size: 13)).foregroundStyle(AppTheme.muted) }
+            VStack(spacing: 12) { ProgressView(); Text("회의 기록을 불러오고 있어요").font(.system(size: 13)).foregroundStyle(AppTheme.muted) }
         } else if let detailError {
             VStack(spacing: 14) {
                 Image(systemName: "exclamationmark.doc").font(.system(size: 30)).foregroundStyle(AppTheme.rose)
@@ -175,7 +175,7 @@ struct MeetingHistoryView: View {
         } else if let snapshot {
             snapshotDetail(snapshot)
         } else {
-            emptyState("왼쪽에서 회의를 선택하세요", icon: "text.book.closed")
+            emptyState("왼쪽에서 회의를 선택해 주세요", icon: "text.book.closed")
         }
     }
 
@@ -194,7 +194,7 @@ struct MeetingHistoryView: View {
                     HistoryReprocessingControl(model: model, snapshot: value, dismiss: dismiss) { actionError = $0 }
                 }
             }
-            Text(showingDeleted ? "삭제한 회의에 보관 중입니다. 목록으로 복원하면 재가공을 이어갈 수 있습니다." : "원본은 읽기 전용으로 보관합니다. 재가공본에서 전사록과 회의록을 편집할 수 있습니다.")
+            Text(showingDeleted ? "삭제한 회의에 보관 중이에요. 목록으로 복원하면 재가공을 이어갈 수 있어요." : "원본은 읽기 전용으로 보관해요. 재가공본에서 전사록과 회의록을 편집할 수 있어요.")
                 .font(.system(size: 11)).foregroundStyle(AppTheme.muted).lineSpacing(3)
             if !value.warnings.isEmpty {
                 DisclosureGroup("기록 확인 사항 \(value.warnings.count)개") {
@@ -229,7 +229,7 @@ struct MeetingHistoryView: View {
 
     @ViewBuilder private func minutes(_ value: MeetingHistorySnapshot) -> some View {
         if value.markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            emptyState(value.segments.isEmpty ? "회의록 생성에 사용할 발언을 확인해 주세요." : "회의록 생성 대기 · 전사는 보관돼 있습니다. ‘재가공본 만들기’ 후 ‘회의록 생성’을 눌러 주세요.", icon: "doc.text")
+            emptyState(value.segments.isEmpty ? "회의록 생성에 사용할 발언을 확인해 주세요." : "회의록 생성 대기 · 전사는 보관돼 있어요. ‘재가공본 만들기’ 후 ‘회의록 생성’을 눌러 주세요.", icon: "doc.text")
         } else {
             VStack(alignment:.leading,spacing:8) {
                 if let record=value.record,record.editedOutput == nil,record.savedRevision>=0,record.savedRevision<record.revision {
@@ -266,7 +266,7 @@ struct MeetingHistoryView: View {
                 if !value.context.terms.isEmpty { textCard("인식 참고 용어", text: value.context.terms) }
                 if let purpose = value.record?.purpose, !purpose.isEmpty { textCard("회의 목적", text: purpose) }
                 if value.materials.documents.isEmpty {
-                    Text("이 회의에 연결한 자료가 여기에 표시됩니다.").font(.system(size: 12)).foregroundStyle(AppTheme.muted).padding(12)
+                    Text("이 회의에 연결한 자료가 여기에 표시돼요.").font(.system(size: 12)).foregroundStyle(AppTheme.muted).padding(12)
                 }
                 ForEach(value.materials.documents) { document in
                     VStack(alignment: .leading, spacing: 9) {
@@ -330,7 +330,7 @@ struct MeetingHistoryView: View {
                     }
                 }.padding(2)
             }
-        } else { emptyState("저장한 도우미 요약과 제안이 여기에 표시됩니다", icon: "sparkles") }
+        } else { emptyState("저장한 도우미 요약과 제안이 여기에 표시돼요", icon: "sparkles") }
     }
 
     @ViewBuilder private func assistantItems(_ title: String, items: [AssistantItem]) -> some View {
@@ -394,14 +394,14 @@ struct MeetingHistoryView: View {
 
     private func requestDeletion(_ entry: MeetingHistoryEntry) {
         guard model.canDeleteHistory(entry.id) else {
-            actionError = "현재 녹음·저장 중인 회의는 작업 완료 후 삭제할 수 있습니다."; return
+            actionError = "현재 녹음·저장 중인 회의는 작업 완료 후 삭제할 수 있어요."; return
         }
         pendingDelete = entry
     }
     private func changeDeletion(_ entry: MeetingHistoryEntry, deleted: Bool) {
         pendingDelete = nil
         guard !deleted || model.canDeleteHistory(entry.id) else {
-            actionError = "현재 녹음·저장 중인 회의는 작업 완료 후 삭제할 수 있습니다."; return
+            actionError = "현재 녹음·저장 중인 회의는 작업 완료 후 삭제할 수 있어요."; return
         }
         do {
             try history.setDeleted(entry, deleted: deleted)
@@ -448,10 +448,10 @@ private struct HistoryReprocessingControl: View {
             }.buttonStyle(.borderedProminent)
                 .disabled(!model.canOpenHistoryForReprocessing || snapshot.segments.isEmpty)
             if !model.canOpenHistoryForReprocessing {
-                Text("현재 작업을 마친 뒤 재가공본을 만들 수 있습니다.")
+                Text("현재 작업을 마친 뒤 재가공본을 만들 수 있어요.")
                     .font(.system(size: 11)).foregroundStyle(AppTheme.rose)
             } else if snapshot.segments.isEmpty {
-                Text("회의록 열람용 기록입니다. 전사 구간이 있는 회의에서 재가공본을 만들 수 있습니다.")
+                Text("회의록 열람용 기록이에요. 전사 구간이 있는 회의에서 재가공본을 만들 수 있어요.")
                     .font(.system(size: 11)).foregroundStyle(AppTheme.muted)
             }
         }.frame(maxWidth: 240, alignment: .trailing)

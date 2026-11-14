@@ -27,13 +27,13 @@ struct VoiceIdentityView: View {
     private var meetingSelection: some View {
         VStack(alignment:.leading,spacing:10) {
             Text(meetingFinished ? "1. 회의 발언으로 학습 데이터 추가" : "1. 학습할 화자와 발언 선택").font(.headline)
-            Text(meetingFinished ? "저장된 M4A에서 화자별 발언을 모읍니다. 각 화자의 이름을 확인하면 기존 학습 데이터에 추가하고 개인별 분류기를 갱신합니다." : "화자가 명확한 발언을 골라 이름을 확인하세요. 확인한 음성은 기존 데이터와 함께 개인별 목소리 분류기 학습에 사용합니다.")
+            Text(meetingFinished ? "저장된 M4A에서 화자별 발언을 모아요. 각 화자의 이름을 확인하면 기존 학습 데이터에 추가하고 개인별 분류기를 갱신해요." : "화자가 명확한 발언을 골라 이름을 확인해 주세요. 확인한 음성은 기존 데이터와 함께 개인별 목소리 분류기 학습에 사용해요.")
                 .font(.caption).foregroundStyle(.secondary)
             if meetingSpeakers.isEmpty {
-                Text(model.isReprocessing ? "저장된 발언 중 화자가 구분된 3초 이상의 구간을 확인해 주세요." : "회의를 시작하면 3초 이상 이어진 발언이 여기에 표시됩니다.").font(.callout).foregroundStyle(.secondary)
+                Text(model.isReprocessing ? "저장된 발언 중 화자가 구분된 3초 이상의 구간을 확인해 주세요." : "회의를 시작하면 3초 이상 이어진 발언이 여기에 표시돼요.").font(.callout).foregroundStyle(.secondary)
             }
             if model.isReprocessing {
-                Text("저장된 발언의 시작·종료 시각으로 원음 구간을 준비합니다. 선택 음성을 듣고 화자를 확인한 뒤 학습하세요.")
+                Text("저장된 발언의 시작·종료 시각으로 원음 구간을 준비해요. 선택 음성을 듣고 화자를 확인한 뒤 학습해 주세요.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             ForEach(meetingSpeakers,id:\.self) { speaker in
@@ -87,7 +87,7 @@ struct VoiceIdentityView: View {
             HStack {
                 VStack(alignment:.leading,spacing:4) {
                     Text("목소리 누적 학습 · 이름 연결").font(.title2.bold())
-                    Text("이름을 확인한 음성이 쌓일 때마다 개인별 목소리 분류기를 학습합니다.").font(.caption).foregroundStyle(.secondary)
+                    Text("이름을 확인한 음성이 쌓일 때마다 개인별 목소리 분류기를 학습해요.").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer();Button("닫기") { voice.stopRecording();dismiss() }.keyboardShortcut(.cancelAction)
             }
@@ -106,7 +106,7 @@ struct VoiceIdentityView: View {
                     TextField("이름",text:$name).textFieldStyle(.roundedBorder).disabled(selected != nil || voice.busy)
                     if selected != nil {
                         Toggle("선택한 발언으로 학습 데이터 다시 구성",isOn:$rebuild).disabled(voice.busy || voice.learningBusy)
-                        Text(rebuild ? "기존 구간은 제외 목록에 보관하고 선택한 발언으로 분류기를 다시 학습합니다. 학습 기록에서 되돌릴 수 있습니다." : "이전 회의의 학습 데이터를 유지하며 확인한 발언을 추가합니다.")
+                        Text(rebuild ? "기존 구간은 제외 목록에 보관하고 선택한 발언으로 분류기를 다시 학습해요. 학습 기록에서 되돌릴 수 있어요." : "이전 회의의 학습 데이터를 유지하며 확인한 발언을 추가해요.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     if voice.pendingSeconds > 0 {
@@ -115,7 +115,7 @@ struct VoiceIdentityView: View {
                             Button("선택 음성 듣기",action:voice.playPending)
                             Button("선택 해제") { voice.clearPending();confirmed=false }.disabled(voice.busy)
                         }
-                        Toggle("선택한 발언의 화자와 이름을 확인했습니다",isOn:$confirmed).disabled(voice.busy)
+                        Toggle("선택한 발언의 화자와 이름을 확인했어요",isOn:$confirmed).disabled(voice.busy)
                         Button(selected == nil ? "확인한 이름으로 학습 시작" : (rebuild ? "선택한 데이터로 다시 학습" : "기존 데이터에 추가 학습")) { voice.enroll(name:name,existing:selected,rebuild:rebuild);confirmed=false }
                             .buttonStyle(.borderedProminent).disabled(!confirmed || name.trimmingCharacters(in:.whitespaces).isEmpty || voice.busy || voice.learningBusy)
                     }
@@ -138,7 +138,7 @@ struct VoiceIdentityView: View {
                                 .font(.caption).textSelection(.enabled)
                         }
                     }
-                    Text("확인한 음성(M4A), 목소리 특징, 학습한 분류기와 변경 이력은 이 Mac에 저장됩니다. 회의가 바뀌어도 학습 데이터를 이어서 사용합니다. 잡음·겹친 발언·다른 마이크가 포함된 구간은 듣기로 확인한 뒤 학습에서 제외할 수 있습니다.")
+                    Text("확인한 음성(M4A), 목소리 특징, 학습한 분류기와 변경 이력은 이 Mac에 저장돼요. 회의가 바뀌어도 학습 데이터를 이어서 사용해요. 잡음·겹친 발언·다른 마이크가 포함된 구간은 듣기로 확인한 뒤 학습에서 제외할 수 있어요.")
                         .font(.caption).foregroundStyle(.secondary)
                 }.padding(.trailing,8)
             }
@@ -165,8 +165,8 @@ struct VoiceIdentityView: View {
         VStack(alignment: .leading, spacing: 10) {
             if voice.vault.profiles.isEmpty {
                 VStack(alignment:.leading,spacing:8) {
-                    Label("비교에 사용할 목소리 등록이 필요합니다",systemImage:"person.crop.circle.badge.exclamationmark").font(.headline)
-                    Text(voice.vault.archived.isEmpty ? "아래에서 음성과 이름을 확인해 새 목소리를 등록하세요." : "기존 목소리 \(voice.vault.archived.count)명이 보관함에 있습니다. 사용할 목소리를 복원하면 다음 발언부터 이름을 비교합니다.")
+                    Label("비교에 사용할 목소리 등록이 필요해요",systemImage:"person.crop.circle.badge.exclamationmark").font(.headline)
+                    Text(voice.vault.archived.isEmpty ? "아래에서 음성과 이름을 확인해 새 목소리를 등록해 주세요." : "기존 목소리 \(voice.vault.archived.count)명이 보관함에 있어요. 사용할 목소리를 복원하면 다음 발언부터 이름을 비교해요.")
                         .font(.callout)
                     ForEach(voice.vault.archived) { profile in
                         Button("\(profile.name) · 목소리 복원") { voice.restore(profile.id) }.disabled(voice.busy || voice.learningBusy)
@@ -180,7 +180,7 @@ struct VoiceIdentityView: View {
                 Spacer()
                 Button("지금 다시 비교", action: model.recheckVoiceNames)
                     .disabled(voice.mappingMode == .off || voice.vault.profiles.isEmpty || model.speakerIDs.isEmpty || voice.busy || voice.recording)
-                    .help("현재 발언을 등록 목소리와 다시 비교합니다. 직접 확인한 이름은 유지됩니다.")
+                    .help("현재 발언을 등록 목소리와 다시 비교해요. 직접 확인한 이름은 유지돼요.")
             }
             Picker("이름 연결 방식", selection: Binding(
                 get: { voice.mappingMode },
@@ -201,7 +201,7 @@ struct VoiceIdentityView: View {
                 ), in: 0.45...0.90, step: 0.05)
                 Text(String(format: "%.2f", voice.vault.threshold)).monospacedDigit()
             }.disabled(voice.mappingMode == .off)
-            Text("기본 0.65. 값을 높이면 이름 제안 기준이 엄격해집니다. 자동 연결은 여러 발언과 학습 음성의 일치를 함께 확인합니다. 유사도는 목소리 특징의 점수입니다.")
+            Text("기본 0.65. 값을 높이면 이름 제안 기준이 엄격해져요. 자동 연결은 여러 발언과 학습 음성의 일치를 함께 확인해요. 유사도는 목소리 특징의 점수예요.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -216,14 +216,14 @@ struct VoiceIdentityView: View {
                     set: { voice.configureLearning(enabled: $0) }
                 ))
                 Text(voice.vault.continuousLearningEnabled
-                     ? "등록된 목소리의 이름을 직접 입력해 확인하거나 ‘이름 확정’을 누르면, 해당 화자의 확인된 발언과 이어지는 새 발언이 학습 데이터에 쌓입니다. 새 목소리는 아래에서 등록하세요. 자동 연결·이름 후보는 사용자의 이름 확인을 기다립니다."
-                     : "새 발언의 자동 학습을 쉬고 현재 분류기를 유지합니다. 아래에서 발언을 직접 골라 추가 학습할 수 있습니다.")
+                     ? "등록된 목소리의 이름을 직접 입력해 확인하거나 ‘이름 확정’을 누르면, 이 화자의 확인된 발언과 이어지는 새 발언이 학습 데이터에 쌓여요. 새 목소리는 아래에서 등록해 주세요. 자동 연결·이름 후보는 사용자의 이름 확인을 기다려요."
+                     : "새 발언의 자동 학습을 쉬고 현재 분류기를 유지해요. 아래에서 발언을 직접 골라 추가 학습할 수 있어요.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 if voice.learningBusy { ProgressView("추가 음성으로 개인별 분류기 학습 중").controlSize(.small) }
                 if !voice.learningStatus.isEmpty {
                     Text(voice.learningStatus).font(.caption).foregroundStyle(AppTheme.violet).textSelection(.enabled)
                 }
-                Text("NVIDIA TitaNet은 고정된 음성 특징 추출기로 사용합니다. 추가 데이터로 이 Mac의 개인별 분류기와 판정 기준을 학습하며, 별도 녹음 구간의 검증 결과를 아래에 기록합니다.")
+                Text("NVIDIA TitaNet은 고정된 음성 특징 추출기로 사용해요. 추가 데이터로 이 Mac의 개인별 분류기와 판정 기준을 학습하며, 별도 녹음 구간의 검증 결과를 아래에 기록해요.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(5)
         }
@@ -237,7 +237,7 @@ struct VoiceIdentityView: View {
                 if let learned = profile.learnedModel {
                     learnedModelStatus(learned)
                 } else {
-                    Text("분류기 학습 대기 · 이름을 확인한 발언으로 학습을 시작하세요.")
+                    Text("분류기 학습 대기 · 이름을 확인한 발언으로 학습을 시작해 주세요.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 HStack {
@@ -251,7 +251,7 @@ struct VoiceIdentityView: View {
                 if voice.canRollbackLearning(profileID: profile.id) {
                     Button("마지막 학습 되돌리기") { voice.rollbackLastLearning(profileID: profile.id) }
                         .disabled(voice.busy || voice.learningBusy)
-                        .help("직전 학습의 데이터 구성과 분류기로 돌아갑니다. 추가 음성은 제외 목록에 보관합니다.")
+                        .help("직전 학습의 데이터 구성과 분류기로 돌아가요. 추가 음성은 제외 목록에 보관해요.")
                 }
                 if !profile.learningHistory.isEmpty {
                     DisclosureGroup("학습 변화 기록 · \(profile.learningHistory.count)회") {
@@ -274,7 +274,7 @@ struct VoiceIdentityView: View {
                                 Button("듣기") { voice.play(sample) }
                                 Button("학습에서 제외") { voice.removeSample(profile: profile.id, sample: sample.id) }
                                     .disabled(voice.busy || voice.learningBusy)
-                                    .help("이 음성을 제외하고 개인별 분류기를 다시 계산합니다.")
+                                    .help("이 음성을 제외하고 개인별 분류기를 다시 계산해요.")
                             }.padding(.vertical, 3)
                         }
                     }
@@ -321,7 +321,7 @@ struct VoiceIdentityView: View {
                     Text("다른 사람 음성 오수용률 \(percent(falseAccept))\(baselineText(learned.validation.baselineFalseAcceptRate))")
                         .font(.caption).monospacedDigit()
                 }
-                Text("표시된 비율은 저장한 검증 구간의 결과입니다. 실제 회의의 마이크·잡음·발화 조건에 따라 이름 판정 결과가 달라집니다.")
+                Text("표시된 비율은 저장한 검증 구간의 결과예요. 실제 회의의 마이크·잡음·발화 조건에 따라 이름 판정 결과가 달라져요.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -373,11 +373,11 @@ struct VoiceIdentityView: View {
     private var mappingExplanation: String {
         switch voice.mappingMode {
         case .automatic:
-            return "등록 목소리가 충분히 일치하면 이름을 자동으로 연결합니다. 발언 카드에서 ‘이름 확정’을 누르면 사람이 확인한 이름으로 유지됩니다."
+            return "등록 목소리가 충분히 일치하면 이름을 자동으로 연결해요. 발언 카드에서 ‘이름 확정’을 누르면 사람이 확인한 이름으로 유지돼요."
         case .suggest:
-            return "등록 목소리와 닮은 이름을 발언 카드에 제안합니다. ‘이름 확정’을 누르면 현재 대화에 연결됩니다."
+            return "등록 목소리와 닮은 이름을 발언 카드에 제안해요. ‘이름 확정’을 누르면 현재 대화에 연결돼요."
         case .off:
-            return "목소리 비교를 쉬고 화자 번호와 직접 확인한 이름을 표시합니다. 등록 목소리는 다음 사용을 위해 보관됩니다."
+            return "목소리 비교를 쉬고 화자 번호와 직접 확인한 이름을 표시해요. 등록 목소리는 다음 사용을 위해 보관돼요."
         }
     }
 
@@ -414,8 +414,8 @@ struct VoiceIdentityView: View {
 
     private func pendingNameStatus(_ speaker: Int) -> String {
         if voice.mappingMode == .off { return "이름 연결 기능 꺼짐" }
-        if voice.vault.profiles.isEmpty { return "목소리를 등록하면 이름을 비교합니다" }
-        if voice.rejectedSpeakers.contains(speaker) { return "이번 회의에서는 직접 이름을 확인합니다" }
+        if voice.vault.profiles.isEmpty { return "목소리를 등록하면 이름을 비교해요" }
+        if voice.rejectedSpeakers.contains(speaker) { return "이번 회의에서는 직접 이름을 확인해요" }
         if voice.matchingSpeakers.contains(speaker) { return "등록 목소리와 비교 중" }
         return "이름을 비교할 발언을 기다리는 중"
     }
@@ -441,10 +441,10 @@ struct VoiceNameStatusView: View {
                 Spacer(minLength: 4)
                 if presentation.kind == .suggested {
                     if let confirm { Button("이름 확정", action: confirm).help(confirmationHelp) }
-                    if let dismiss { Button("후보 제외", action: dismiss).help("이번 회의에서 이 화자의 목소리 후보 제안을 닫습니다") }
+                    if let dismiss { Button("후보 제외", action: dismiss).help("이번 회의에서 이 화자의 목소리 후보 제안을 닫아요") }
                 } else if presentation.kind == .automatic {
                     if let confirm { Button("이름 확정", action: confirm).help(confirmationHelp) }
-                    if let undo { Button("연결 해제", action: undo).help("자동 연결을 해제하고 현재 화자를 직접 확인합니다") }
+                    if let undo { Button("연결 해제", action: undo).help("자동 연결을 해제하고 현재 화자를 직접 확인해요") }
                 }
             }
             .buttonStyle(.borderless)
@@ -454,7 +454,7 @@ struct VoiceNameStatusView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if continuousLearningEnabled && (presentation.kind == .automatic || presentation.kind == .suggested) {
-                Text("이름을 확정하면 이 화자의 새 발언으로 계속 학습합니다.")
+                Text("이름을 확정하면 이 화자의 새 발언으로 계속 학습해요.")
                     .font(.system(size: 10)).foregroundStyle(AppTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -465,8 +465,8 @@ struct VoiceNameStatusView: View {
 
     private var confirmationHelp: String {
         continuousLearningEnabled
-            ? "이름을 확인하고 이 화자의 확인된 음성과 새 발언으로 개인별 분류기를 학습합니다."
-            : "현재 이름을 직접 확인한 화자 이름으로 유지합니다."
+            ? "이름을 확인하고 이 화자의 확인된 음성과 새 발언으로 개인별 분류기를 학습해요."
+            : "현재 이름을 직접 확인한 화자 이름으로 유지해요."
     }
 }
 

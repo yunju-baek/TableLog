@@ -9,8 +9,8 @@ enum GeminiCredentialsError: LocalizedError {
         switch self {
         case .invalidKey: return "Google AI Studio에서 발급한 Gemini API 키 전체를 입력해 주세요."
         case .read: return "Gemini API 키를 읽으려면 Mac의 키체인 접근 상태를 확인해 주세요."
-        case .save: return "Gemini API 키를 키체인에 저장하는 중 오류가 발생했습니다."
-        case .delete: return "Gemini API 키를 키체인에서 삭제하는 중 오류가 발생했습니다."
+        case .save: return "Gemini API 키를 키체인에 저장하는 중 오류가 발생했어요."
+        case .delete: return "Gemini API 키를 키체인에서 삭제하는 중 오류가 발생했어요."
         }
     }
 }

@@ -10,7 +10,7 @@ struct EditingMaterialAddition: Codable, Equatable {
               title.count <= 160, !title.contains(where: \.isNewline),
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               text.count <= Self.maximumCharacters else {
-            throw MaterialError.message("자료 제목은 한 줄로 160자까지, 본문은 1자부터 20만 자까지 입력하세요.")
+            throw MaterialError.message("자료 제목은 한 줄로 160자까지, 본문은 1자부터 20만 자까지 입력해 주세요.")
         }
     }
 

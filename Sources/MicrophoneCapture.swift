@@ -27,21 +27,21 @@ enum MicrophoneCaptureError: LocalizedError {
         case .inputUnavailable:
             return "사용 가능한 마이크 입력을 확인해 주세요."
         case .deviceSelectionFailed(let status):
-            return "마이크 선택 중 오류가 발생했습니다. (Core Audio \(status))"
+            return "마이크 선택 중 오류가 발생했어요. (Core Audio \(status))"
         case .invalidInputFormat:
             return "마이크 입력 형식을 확인한 뒤 녹음을 다시 시작해 주세요."
         case .conversionFailed(let detail):
-            return "마이크 음성 변환 중 오류가 발생했습니다. \(detail)"
+            return "마이크 음성 변환 중 오류가 발생했어요. \(detail)"
         case .captureBacklogExceeded:
-            return "마이크 처리 대기 시간이 10초를 초과하여 녹음을 종료합니다. 다른 작업을 줄인 뒤 다시 시작해 주세요."
+            return "마이크 처리 대기 시간이 10초를 초과하여 녹음을 종료해요. 다른 작업을 줄인 뒤 다시 시작해 주세요."
         case .configurationChanged:
-            return "마이크 연결 또는 입력 설정이 변경되었습니다. 장치를 확인한 뒤 녹음을 다시 시작해 주세요."
+            return "마이크 연결 또는 입력 설정이 바뀌었어요. 장치를 확인한 뒤 녹음을 다시 시작해 주세요."
         case .engineRecoveryFailed(let detail):
-            return "마이크 입력 재개 중 오류가 발생했습니다. 장치를 확인한 뒤 다시 시작해 주세요. \(detail)"
+            return "마이크 입력 재개 중 오류가 발생했어요. 장치를 확인한 뒤 다시 시작해 주세요. \(detail)"
         case .sessionStillActive:
             return "현재 녹음 종료가 완료된 뒤 새 녹음을 시작해 주세요."
         case .deviceQueryFailed(let status):
-            return "마이크 목록을 가져오는 중 오류가 발생했습니다. (Core Audio \(status))"
+            return "마이크 목록을 가져오는 중 오류가 발생했어요. (Core Audio \(status))"
         }
     }
 }
@@ -282,7 +282,7 @@ final class MicrophoneCapture: MicrophoneCapturing {
         guard let copy = Self.copyPCMBuffer(source) else {
             session.accepting = false
             processingQueue.async { [self, session] in
-                reportFailure(MicrophoneCaptureError.conversionFailed("음성 버퍼 복사에 실패했습니다."), session: session)
+                reportFailure(MicrophoneCaptureError.conversionFailed("음성 버퍼 복사에 실패했어요."), session: session)
             }
             return
         }
@@ -324,7 +324,7 @@ final class MicrophoneCapture: MicrophoneCapturing {
         var iterations = 0
         repeat {
             guard let output = AVAudioPCMBuffer(pcmFormat: session.outputFormat, frameCapacity: 4_096) else {
-                throw MicrophoneCaptureError.conversionFailed("출력 버퍼를 할당할 수 없습니다.")
+                throw MicrophoneCaptureError.conversionFailed("출력 버퍼를 할당할 수 없어요.")
             }
             var conversionError: NSError?
             let status = session.converter.convert(to: output, error: &conversionError) { _, inputStatus in
@@ -348,12 +348,12 @@ final class MicrophoneCapture: MicrophoneCapturing {
             case .inputRanDry, .endOfStream:
                 return
             case .error:
-                throw MicrophoneCaptureError.conversionFailed("AVAudioConverter 오류가 발생했습니다.")
+                throw MicrophoneCaptureError.conversionFailed("AVAudioConverter 오류가 발생했어요.")
             @unknown default:
                 throw MicrophoneCaptureError.conversionFailed("음성 변환 상태를 확인해 주세요.")
             }
             guard iterations < 128 else {
-                throw MicrophoneCaptureError.conversionFailed("음성 변환 처리 한도를 초과했습니다.")
+                throw MicrophoneCaptureError.conversionFailed("음성 변환 처리 한도를 초과했어요.")
             }
         } while true
     }

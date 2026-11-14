@@ -22,7 +22,7 @@ enum TableLogModels {
         let values=try? url.resourceValues(forKeys:[.isRegularFileKey,.fileSizeKey])
         guard values?.isRegularFile==true,(values?.fileSize ?? 0)>1_000_000,
               FileManager.default.isReadableFile(atPath:url.path) else {
-            throw MissingModel(message:"\(model.title) 모델을 확인해 주세요.\n\(url.path)\nNVIDIA 음성·화자 설정에서 모델 폴더를 열 수 있습니다.")
+            throw MissingModel(message:"\(model.title) 모델을 확인해 주세요.\n\(url.path)\nNVIDIA 음성·화자 설정에서 모델 폴더를 열 수 있어요.")
         }
         if model != .voice {
             let handle=try FileHandle(forReadingFrom:url);defer { try? handle.close() }

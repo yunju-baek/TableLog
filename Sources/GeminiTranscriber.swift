@@ -35,16 +35,16 @@ enum GeminiTranscriberError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingKey: return "클라우드 전사를 시작하려면 Gemini API 키를 등록해 주세요."
-        case .invalidAudio: return "전송할 음성의 샘플과 길이를 확인해 주세요. 로컬 전사 결과를 유지합니다."
-        case .audioTooLong: return "Gemini 전사에는 5분 이하의 음성 구간을 사용합니다. 로컬 전사 결과를 유지합니다."
+        case .invalidAudio: return "전송할 음성의 샘플과 길이를 확인해 주세요. 로컬 전사 결과를 유지해요."
+        case .audioTooLong: return "Gemini 전사에는 5분 이하의 음성 구간을 사용해요. 로컬 전사 결과를 유지해요."
         case .authentication: return "Gemini API 키와 프로젝트의 API 사용 권한을 확인해 주세요."
-        case .quota: return "Gemini 요청 한도 또는 사용량 한도에 도달했습니다. 한도를 확인한 뒤 다시 시작해 주세요."
-        case .unavailable: return "Gemini 서비스가 일시적으로 응답하기 어렵습니다. 로컬 전사 결과를 유지합니다."
-        case .rejected: return "Gemini 전사 요청이 거절되었습니다. 모델 사용 권한과 요청 설정을 확인해 주세요."
-        case .timeout: return "Gemini 전사 응답 대기 시간이 60초를 초과했습니다. 로컬 전사 결과를 유지합니다."
-        case .network: return "Gemini 연결 상태를 확인해 주세요. 로컬 전사 결과를 유지합니다."
-        case .response: return "Gemini 전사 결과를 확인하는 중 오류가 발생했습니다. 로컬 전사 결과를 유지합니다."
-        case .timestamps: return "Gemini 단어 시간 정보의 검증이 필요해 로컬 전사 결과를 유지합니다."
+        case .quota: return "Gemini 요청 한도 또는 사용량 한도에 도달했어요. 한도를 확인한 뒤 다시 시작해 주세요."
+        case .unavailable: return "Gemini 서비스가 일시적으로 응답하기 어려워요. 로컬 전사 결과를 유지해요."
+        case .rejected: return "Gemini 전사 요청이 거절됐어요. 모델 사용 권한과 요청 설정을 확인해 주세요."
+        case .timeout: return "Gemini 전사 응답 대기 시간이 60초를 초과했어요. 로컬 전사 결과를 유지해요."
+        case .network: return "Gemini 연결 상태를 확인해 주세요. 로컬 전사 결과를 유지해요."
+        case .response: return "Gemini 전사 결과를 확인하는 중 오류가 발생했어요. 로컬 전사 결과를 유지해요."
+        case .timestamps: return "Gemini 단어 시간 정보의 검증이 필요해 로컬 전사 결과를 유지해요."
         }
     }
 }

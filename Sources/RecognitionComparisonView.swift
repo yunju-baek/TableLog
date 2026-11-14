@@ -28,7 +28,7 @@ struct RecognitionComparisonView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("인식 차이와 변경 기록").font(.title2.bold())
-                    Text(selectedFile == nil ? "녹음 중에도 결과가 도착하면 자동으로 갱신됩니다." : "저장한 대화의 인식 기록")
+                    Text(selectedFile == nil ? "녹음 중에도 결과가 도착하면 자동으로 갱신돼요." : "저장한 대화의 인식 기록")
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -50,14 +50,14 @@ struct RecognitionComparisonView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("\(model.speakerName(for: turn.speaker)) · \(AppModel.time(turn.start))–\(AppModel.time(turn.end))")
                                 .font(.headline)
-                            Text("현재 발언 · 같은 화자의 연속 발언을 함께 표시합니다.")
+                            Text("현재 발언 · 같은 화자의 연속 발언을 함께 표시해요.")
                                 .font(.caption).foregroundStyle(.secondary)
                             TextComparisonView(before: model.localDraftText(for: turn), after: model.displayedText(for: turn),
-                                               beforeTitle: "현재 로컬 초안 · 해당 화자·시간 기준",
+                                               beforeTitle: "현재 로컬 초안 · 선택한 화자·시간 기준",
                                                afterTitle: model.recognitionLabel(for: turn))
                         }.padding(16).background(.white, in: RoundedRectangle(cornerRadius: 12))
                         Toggle("전체 처리 구간 보기", isOn: $allChunks).toggleStyle(.checkbox)
-                        Text("아래 기록은 각 교정·전송 구간 전체를 비교합니다. 여러 화자의 발언이 포함될 수 있습니다.")
+                        Text("아래 기록은 각 교정·전송 구간 전체를 비교해요. 여러 화자의 발언이 포함될 수 있어요.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     if selectedFile == nil {
@@ -94,7 +94,7 @@ struct RecognitionComparisonView: View {
                             ChunkComparisonView(chunk: chunk)
                         }
                         if chunks.isEmpty && (document.codex_corrections ?? []).isEmpty && (document.speaker_reviews ?? []).isEmpty {
-                            Label("처리 기록 대기 중 · 로컬 초안을 먼저 표시합니다.", systemImage: "clock")
+                            Label("처리 기록 대기 중 · 로컬 초안을 먼저 표시해요.", systemImage: "clock")
                                 .foregroundStyle(.secondary).padding(.vertical, 20)
                         }
                         ForEach(Array(document.failures.enumerated()), id: \.offset) { _, failure in
@@ -105,10 +105,10 @@ struct RecognitionComparisonView: View {
                             }.font(.callout).padding(12).background(.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
                         }
                     } else if file == nil {
-                        Text("녹음을 시작하면 비교 기록이 생성됩니다. ‘저장한 기록 열기’로 이전 대화의 .comparison.json 파일을 볼 수 있습니다.")
+                        Text("녹음을 시작하면 비교 기록이 생성돼요. ‘저장한 기록 열기’로 이전 대화의 .comparison.json 파일을 볼 수 있어요.")
                             .foregroundStyle(.secondary).padding(.vertical, 25)
                     } else if !loaded {
-                        ProgressView("비교 기록을 읽고 있습니다.")
+                        ProgressView("비교 기록을 읽고 있어요.")
                     }
                     if let loadError {
                         Text(loadError).font(.callout).foregroundStyle(.orange)
@@ -133,7 +133,7 @@ struct RecognitionComparisonView: View {
                     document = next; loadError = nil; loaded = true
                 } catch {
                     guard !Task.isCancelled else { return }
-                    loadError = "비교 기록을 읽을 수 없습니다. .comparison.json 파일과 저장 위치를 확인해 주세요."
+                    loadError = "비교 기록을 읽을 수 없어요. .comparison.json 파일과 저장 위치를 확인해 주세요."
                     loaded = true
                 }
                 if selectedFile != nil { return }
@@ -147,7 +147,7 @@ struct RecognitionComparisonView: View {
         panel.allowedContentTypes = [.json]
         panel.allowsMultipleSelection = false
         panel.directoryURL = StorageLocations.diagnostics
-        panel.message = "대화의 .comparison.json 파일을 선택하세요."
+        panel.message = "대화의 .comparison.json 파일을 선택해 주세요."
         panel.begin { response in
             if response == .OK, let url = panel.url { selectedFile = url }
         }
@@ -202,7 +202,7 @@ private struct TextComparisonView: View {
         let diff = TranscriptTextDifference.between(before, after)
         VStack(alignment: .leading, spacing: 10) {
             Text(diff.inserted_characters == 0 && diff.deleted_characters == 0
-                 ? "두 결과가 같습니다."
+                 ? "두 결과가 같아요."
                  : "추가 \(diff.inserted_characters)자 · 삭제 \(diff.deleted_characters)자")
                 .font(.caption.weight(.medium)).foregroundStyle(.secondary)
             HStack(alignment: .top, spacing: 12) {
@@ -210,7 +210,7 @@ private struct TextComparisonView: View {
                 column(afterTitle, text: highlighted(diff, side: "after"), empty: after.isEmpty)
             }
             if diff.truncated {
-                Text("변경량이 큰 구간은 문단 범위로 강조합니다.").font(.caption).foregroundStyle(.secondary)
+                Text("변경량이 큰 구간은 문단 범위로 강조해요.").font(.caption).foregroundStyle(.secondary)
             }
         }
     }

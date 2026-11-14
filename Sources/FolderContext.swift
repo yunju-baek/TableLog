@@ -148,5 +148,5 @@ enum FolderContextScanner {
 
 enum FolderCaptureError: LocalizedError {
     case changed
-    var errorDescription: String? { "파일 변경 감지 · 쓰기 완료 후 다음 확인에서 다시 수집합니다." }
+    var errorDescription: String? { "파일 변경 감지 · 쓰기 완료 후 다음 확인에서 다시 수집해요." }
 }

@@ -48,11 +48,11 @@ final class CloudAudioBuffer {
         lock.lock(); defer { lock.unlock() }
         guard session == id, !finished, storedFailure == nil, !incoming.isEmpty else { return }
         guard incoming.count <= capacity - (samples.count - readIndex) else {
-            storedFailure = "클라우드 전사 대기 음성이 \(Int(Self.capacitySeconds))초를 넘었습니다. 이 회의는 로컬 전사 결과로 계속됩니다."
+            storedFailure = "클라우드 전사 대기 음성이 \(Int(Self.capacitySeconds))초를 넘었어요. 이 회의는 로컬 전사 결과로 계속돼요."
             return
         }
         guard incoming.allSatisfy(\.isFinite) else {
-            storedFailure = "클라우드 음성 입력 형식을 확인해 주세요. 이 회의는 로컬 전사 결과로 계속됩니다."
+            storedFailure = "클라우드 음성 입력 형식을 확인해 주세요. 이 회의는 로컬 전사 결과로 계속돼요."
             return
         }
         // Compact before appending so allocation stays within the same bound.

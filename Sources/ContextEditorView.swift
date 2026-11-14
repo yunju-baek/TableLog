@@ -8,7 +8,7 @@ struct ContextEditorView: View {
     @State private var topic: String
     @State private var terms: String
     @State private var options = CodexModelOption.cached()
-    @State private var connectionMessage = "사용할 CLI를 선택하고 개인 계정을 연결하세요."
+    @State private var connectionMessage = "사용할 CLI를 선택해 주세요. 개인 계정을 연결해 주세요."
     @State private var checking = false
     @State private var checkID = UUID()
     @State private var checkTask: Task<Void,Never>?
@@ -33,11 +33,11 @@ struct ContextEditorView: View {
                 VStack(alignment:.leading,spacing:12) {
                     Picker("AI CLI",selection:Binding(get:{settings.provider},set:{value in
                         checkTask?.cancel();checkID=UUID();checking=false;settings.selectProvider(value)
-                        connectionMessage="이 CLI에 사용할 개인 계정의 연결 상태를 확인하세요."
+                        connectionMessage="이 CLI에 사용할 개인 계정의 연결 상태를 확인해 주세요."
                     })) {
                         ForEach(AITextProvider.allCases) { Text($0 == .codex ? "ChatGPT · Codex" : $0.title).tag($0) }
                     }.pickerStyle(.segmented).accessibilityLabel("사용할 AI CLI")
-                    Text("편집 채팅·문맥 교정·회의 요약·회의록·자료 분석·화자 검토에 적용합니다. 요청에 필요한 발언과 자료를 \(settings.provider.destination)로 전달하며, 해당 CLI 계정의 사용 조건과 한도가 적용됩니다.")
+                    Text("편집 채팅·문맥 교정·회의 요약·회의록·자료 분석·화자 검토에 적용해요. 요청에 필요한 발언과 자료를 \(settings.provider.destination)로 전달하며, 선택한 CLI 계정의 사용 조건과 한도가 적용돼요.")
                         .font(.caption).foregroundStyle(.secondary)
                     TextField("실행 파일 경로 · 비우면 자동 탐색",text:$settings.executablePath)
                         .textFieldStyle(.roundedBorder).accessibilityLabel("AI CLI 실행 파일 경로")
@@ -55,7 +55,7 @@ struct ContextEditorView: View {
                         if checking { ProgressView().controlSize(.small);Button("중단") { checkTask?.cancel() } }
                     }
                     if settings.provider != .codex {
-                        Text("공식 CLI에 로그인한 뒤 연결 테스트를 실행하세요. Claude Code는 인증 확인도 지원합니다.")
+                        Text("공식 CLI에 로그인한 뒤 연결 테스트를 실행해 주세요. Claude Code는 인증 확인도 지원해요.")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                     Text(connectionMessage).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
@@ -89,13 +89,13 @@ struct ContextEditorView: View {
                     Text("이름·전문용어 · 줄바꿈·쉼표로 구분").font(.caption)
                     TextEditor(text:$terms).font(.callout).frame(height:65).border(.gray.opacity(0.25))
                         .accessibilityLabel("교정에 참고할 이름과 용어")
-                    Text("용어는 최대 64개, 각 80자입니다. 숫자·날짜·의미 변화는 확인 대상으로 표시합니다.")
+                    Text("용어는 최대 64개, 각 80자예요. 숫자·날짜·의미 변화는 확인 대상으로 표시해요.")
                         .font(.caption2).foregroundStyle(.secondary)
                 }.padding(.trailing,6)
             }
             Divider()
             HStack {
-                Text("AI 선택은 적용 후 새 요청부터 반영됩니다.").font(.caption2).foregroundStyle(.secondary)
+                Text("AI 선택은 적용 후 새 요청부터 반영돼요.").font(.caption2).foregroundStyle(.secondary)
                 Spacer()
                 Button("취소",action:dismiss).keyboardShortcut(.cancelAction)
                 Button("적용") { model.updateCorrectionSettings(settings,topic:topic,terms:terms);dismiss() }
@@ -127,7 +127,7 @@ struct ContextEditorView: View {
             do {
                 let text=try await (connection ? AITextRunner.connectionTest(captured) : AITextRunner.installationStatus(captured))
                 try Task.checkCancellation();guard checkID==identifier else { return };connectionMessage=text
-            } catch { guard checkID==identifier else { return };connectionMessage=error is CancellationError ? "연결 확인을 중단했습니다." : error.localizedDescription }
+            } catch { guard checkID==identifier else { return };connectionMessage=error is CancellationError ? "연결 확인을 중단했어요." : error.localizedDescription }
         }
     }
 }

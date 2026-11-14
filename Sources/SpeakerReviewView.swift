@@ -10,7 +10,7 @@ struct SpeakerReviewView: View {
                 Spacer()
                 Button("닫기") { model.stopReviewAudio(); dismiss() }.keyboardShortcut(.cancelAction)
             }
-            Text("음성으로 구분한 화자를 앞뒤 발언으로 검토합니다. 제안은 원음과 대조한 뒤 적용하세요. 확신도는 모델의 자체 평가입니다.")
+            Text("음성으로 구분한 화자를 앞뒤 발언으로 검토해요. 제안은 원음과 대조한 뒤 적용해 주세요. 확신도는 모델의 자체 평가예요.")
                 .font(.callout).foregroundStyle(.secondary)
             HStack {
                 Label("검토 모델 · \(model.codexSettings.provider.title)", systemImage: "sparkles").font(.callout)
@@ -18,18 +18,18 @@ struct SpeakerReviewView: View {
                 if model.speakerReviewRunning { Button("검토 취소", action: model.cancelSpeakerReview) }
                 else { Button("화자 검토 시작", action: model.startSpeakerReview).buttonStyle(.borderedProminent).disabled(!model.canReviewSpeakers) }
             }
-            Text("\(model.codexSettings.provider.title) · \(model.codexSettings.model.isEmpty ? "기본 모델" : model.codexSettings.model) · \(model.codexSettings.effort.isEmpty ? "기본 추론" : model.codexSettings.effort) — 발언·화자 이름·회의 주제를 선택한 AI CLI의 서비스로 전달합니다. 모델은 ‘AI 설정’에서 변경할 수 있습니다.")
+            Text("\(model.codexSettings.provider.title) · \(model.codexSettings.model.isEmpty ? "기본 모델" : model.codexSettings.model) · \(model.codexSettings.effort.isEmpty ? "기본 추론" : model.codexSettings.effort) — 발언·화자 이름·회의 주제를 선택한 AI CLI의 서비스로 전달해요. 모델은 ‘AI 설정’에서 변경할 수 있어요.")
                 .font(.caption).foregroundStyle(.secondary)
             Text(model.speakerReviewStatus).font(.callout)
             if !model.canReviewSpeakers && !model.speakerReviewRunning {
-                Text("녹음과 본문 교정을 마친 뒤 시작할 수 있습니다. 교정 오류로 대기 중인 전사도 검토할 수 있습니다.").font(.caption).foregroundStyle(.secondary)
+                Text("녹음과 본문 교정을 마친 뒤 시작할 수 있어요. 교정 오류로 대기 중인 전사도 검토할 수 있어요.").font(.caption).foregroundStyle(.secondary)
             }
             if model.playingReviewAudio { Button("원음 재생 중지", action: model.stopReviewAudio) }
             Divider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     if model.speakerReviewRecords.isEmpty {
-                        Text("검토 결과에 최초 화자 → 제안 화자, 이유, 확신도, 원음 확인 시각을 표시합니다. 새 화자 후보도 사용자가 확인해 적용합니다.")
+                        Text("검토 결과에 최초 화자 → 제안 화자, 이유, 확신도, 원음 확인 시각을 표시해요. 새 화자 후보도 사용자가 확인해 적용해요.")
                             .foregroundStyle(.secondary).padding()
                     }
                     ForEach(model.speakerReviewRecords.reversed()) { record in
@@ -52,7 +52,7 @@ struct SpeakerReviewView: View {
                                     }
                                 }.font(.caption)
                                 if proposal.status == "pending" && !model.speakerReviewRunning && !model.canApplySpeakerSuggestion(proposal, record: record) {
-                                    Text("본문·화자·이름 또는 근거 발언이 변경되었습니다. 다시 검토해 최신 제안을 받으세요.").font(.caption).foregroundStyle(.orange)
+                                    Text("본문·화자·이름 또는 근거 발언이 바뀌었어요. 다시 검토해 최신 제안을 받아 주세요.").font(.caption).foregroundStyle(.orange)
                                 }
                             }
                         }.padding(16).background(.white, in: RoundedRectangle(cornerRadius: 12))

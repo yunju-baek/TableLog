@@ -57,7 +57,7 @@ struct TranscriptTextEditor: View {
             HStack {
                 VStack(alignment:.leading,spacing:5) {
                     Text("발언 분리 · 화자 · 문장 수정").font(.title2.bold())
-                    Text("화자가 바뀌는 글자 앞에 커서를 놓고 분리한 뒤, 각 구간의 화자를 선택하세요.")
+                    Text("화자가 바뀌는 글자 앞에 커서를 놓고 분리한 뒤, 각 구간의 화자를 선택해 주세요.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -65,7 +65,7 @@ struct TranscriptTextEditor: View {
             }
             HStack(spacing:7) {
                 Image(systemName:"lock.fill")
-                Text("저장한 구간의 문장과 화자를 확정합니다. 재편집 시 함께 나눈 구간을 불러옵니다.")
+                Text("저장한 구간의 문장과 화자를 확정해요. 재편집 시 함께 나눈 구간을 불러와요.")
             }.font(.caption).foregroundStyle(AppTheme.violet).padding(10)
                 .frame(maxWidth:.infinity,alignment:.leading).background(AppTheme.lavender,in:RoundedRectangle(cornerRadius:9))
             ScrollView {
@@ -97,8 +97,8 @@ struct TranscriptTextEditor: View {
                 }.padding(4)
             }
             VStack(alignment:.leading,spacing:3) {
-                Text("분리 시각은 글자 위치로 추정합니다. 원음을 듣고 슬라이더 또는 초 단위 입력으로 맞추세요.")
-                Text(model.canPlayTranscriptAudio ? "원음 M4A와 교정 이력은 보존됩니다. 빈 구간은 전사와 회의록에서 제외됩니다." : "원음 듣기는 녹음·파일 처리를 마치고 M4A가 저장되면 사용할 수 있습니다.")
+                Text("분리 시각은 글자 위치로 추정해요. 원음을 듣고 슬라이더 또는 초 단위 입력으로 맞춰 주세요.")
+                Text(model.canPlayTranscriptAudio ? "원음 M4A와 교정 이력은 보존돼요. 빈 구간은 전사와 회의록에서 제외돼요." : "원음 듣기는 녹음·파일 처리를 마치고 M4A가 저장되면 사용할 수 있어요.")
             }.font(.caption).foregroundStyle(.secondary)
             if let editError { Text(editError).font(.caption).foregroundStyle(.red) }
             HStack {
@@ -144,7 +144,7 @@ private struct ManualPartEditor: View {
             HStack {
                 Button(action:onSplit) { Label("커서 위치에서 나누기",systemImage:"scissors") }
                     .disabled(part.split(atUTF16:selection.location)==nil)
-                if let onMerge { Button("다음 구간과 합치기",action:onMerge).help("현재 구간의 화자로 합칩니다.") }
+                if let onMerge { Button("다음 구간과 합치기",action:onMerge).help("현재 구간의 화자로 합쳐요.") }
                 Spacer()
                 Button("이 구간 비우기") { part.text="" }
             }.font(.caption)

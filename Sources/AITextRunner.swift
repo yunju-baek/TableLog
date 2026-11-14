@@ -35,7 +35,7 @@ enum AITextRunner {
         }
         let result=try await CodexProcess().run(executable:executable(settings),arguments:["--version"],directory:directory,timeout:15)
         guard result.code==0 else { throw CodexFailure.classify(result.stderr+result.stdout) }
-        return settings.provider.title+" 설치 확인 · "+String(result.stdout.trimmingCharacters(in:.whitespacesAndNewlines).prefix(100))+" · 연결 테스트로 인증을 확인하세요."
+        return settings.provider.title+" 설치 확인 · "+String(result.stdout.trimmingCharacters(in:.whitespacesAndNewlines).prefix(100))+" · 연결 테스트로 인증을 확인해 주세요."
     }
     private struct ClaudeAuthStatus: Decodable { let loggedIn: Bool }
     static func connectionTest(_ settings: CodexCorrectionSettings) async throws -> String {

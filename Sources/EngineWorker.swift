@@ -31,10 +31,13 @@ final class EngineWorker {
         lock.lock(); audioObserver = observer; lock.unlock()
     }
 
-    func load(lowLatency: Bool, tuning: EngineTuningSettings = EngineTuningSettings(), completion: @escaping (Result<Void, Error>) -> Void) {
+    func load(lowLatency: Bool, tuning: EngineTuningSettings = EngineTuningSettings(),
+              progress: ((String) -> Void)? = nil, completion: @escaping (Result<Void, Error>) -> Void) {
         queue.async {
             do {
-                try self.ensureLoaded(context: lowLatency ? 3 : 13, profile: Int32(tuning.diarProfile))
+                try self.ensureLoaded(context: lowLatency ? 3 : 13, profile: Int32(tuning.diarProfile)) { message in
+                    DispatchQueue.main.async { progress?(message) }
+                }
                 DispatchQueue.main.async { completion(.success(())) }
             } catch { DispatchQueue.main.async { completion(.failure(error)) } }
         }
@@ -45,11 +48,14 @@ final class EngineWorker {
         return AppFailure(message: pointer.map { String(cString: $0) } ?? "음성 엔진 상태를 확인해 주세요.")
     }
 
-    private func ensureLoaded(context: Int32, profile: Int32) throws {
+    private func ensureLoaded(context: Int32, profile: Int32, progress: ((String) -> Void)? = nil) throws {
         if handle != nil && loadedContext == context && loadedProfile == profile { return }
         if let handle { hn_engine_destroy(handle); self.handle = nil }
+        progress?("음성 인식 모델 파일을 확인해요.")
         let asr = try TableLogModels.require(.asr).path
+        progress?("화자 분리 모델 파일을 확인해요.")
         let diar = try TableLogModels.require(.diarization).path
+        progress?("NVIDIA Nemotron-3.5 ASR 0.6B와 Nemotron-3-Diarization을 불러와요.")
         handle = asr.withCString { a in diar.withCString { d in hn_engine_create_configured(a, d, context, profile) } }
         guard handle != nil else { throw nativeError() }
         loadedContext = context; loadedProfile = profile
@@ -260,7 +266,7 @@ final class EngineWorker {
                         }
                     }
                     if status == .endOfStream { break }
-                    if status == .error { throw AppFailure(message: "음성 파일 변환 중 오류가 발생했습니다.") }
+                    if status == .error { throw AppFailure(message: "음성 파일 변환 중 오류가 발생했어요.") }
                     if output.frameLength == 0 && reachedEOF { break }
                 }
                 let stopped = self.isCancelled

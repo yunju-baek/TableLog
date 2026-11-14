@@ -70,7 +70,7 @@ struct MeetingWorkRecord: Codable {
     @Published var generateOnFinish = true { didSet { defaults.set(generateOnFinish,forKey:"minutes.onFinish") } }
     @Published var interval = 90 { didSet { defaults.set(interval,forKey:"minutes.interval") } }
     @Published private(set) var bindings = MeetingSpeakerBindings(sessionID:UUID())
-    @Published private(set) var status = "전사문이 쌓이면 회의록을 생성합니다."
+    @Published private(set) var status = "전사문이 쌓이면 회의록을 생성해요."
     @Published private(set) var error: String?
     @Published private(set) var busy = false
     @Published private var generatedURL: URL?
@@ -90,7 +90,7 @@ struct MeetingWorkRecord: Codable {
         if isShowingEditedDraft { return status }
         if hasOutdatedMinutes { return "이전 회의록 보관 · 최신 편집 내용 반영 대기" }
         if generatedURL != nil { return status }
-        guard let record=metadata, !record.segments.isEmpty else { return "발언 저장 후 회의록을 생성할 수 있습니다." }
+        guard let record=metadata, !record.segments.isEmpty else { return "발언 저장 후 회의록을 생성할 수 있어요." }
         return shouldAutomaticallyGenerate(record) ? "전사 저장 완료 · 회의록 자동 생성 대기" : "전사 저장 완료 · ‘회의록 생성’을 눌러 주세요."
     }
     @Published private(set) var sessionID: UUID?
@@ -136,18 +136,19 @@ struct MeetingWorkRecord: Codable {
                     }
                 }
             }
-            let pending=directory.appendingPathComponent("Sessions")
-            if FileManager.default.fileExists(atPath:pending.path) {
-                let files=try FileManager.default.contentsOfDirectory(at:pending,includingPropertiesForKeys:nil)
-                for file in files where file.pathExtension=="json" {
-                    if var record=try? JSONDecoder().decode(MeetingWorkRecord.self,from:Data(contentsOf:file)) {
-                        record.ended=true;records[record.id]=record
-                    }
-                }
-            }
         } catch { self.error="회의록 저장 폴더를 확인해 주세요. " + error.localizedDescription }
     }
     func begin(id:UUID) {
+        // Archived sessions are read when opened, keeping launch work independent of history size.
+        if records[id] == nil {
+            let file = directory.appendingPathComponent("Sessions").appendingPathComponent(id.uuidString + ".json")
+            if FileManager.default.fileExists(atPath: file.path),
+               var record = try? JSONDecoder().decode(MeetingWorkRecord.self, from: Data(contentsOf: file)),
+               record.id == id {
+                record.ended = true
+                records[id] = record
+            }
+        }
         // A previous meeting continues to save from its immutable capture while the new meeting records.
         if let old=sessionID,activeSessions.contains(old),records[old] != nil { records[old]?.ended=true;if generateOnFinish && !manualOnlySessions.contains(old) { enqueue(old) } }
         let attendance=sessionID == nil ? bindings.confirmedParticipants : []
@@ -168,7 +169,7 @@ struct MeetingWorkRecord: Codable {
         }
         guard records[source.id] == nil,
               !FileManager.default.fileExists(atPath: directory.appendingPathComponent("Sessions").appendingPathComponent(source.id.uuidString + ".json").path) else {
-            error="다시 처리할 회의는 새 식별자로 준비해 주세요. 기존 회의는 기록에서 확인할 수 있습니다."
+            error="다시 처리할 회의는 새 식별자로 준비해 주세요. 기존 회의는 기록에서 확인할 수 있어요."
             return false
         }
         let copyURL = directory.appendingPathComponent(source.id.uuidString + ".md")
@@ -197,9 +198,9 @@ struct MeetingWorkRecord: Codable {
         persist(record.id)
         if hasMinutes {
             generatedPreview=minutes;generatedURL=copyURL
-            status="저장된 전사록과 회의록을 불러왔습니다."
+            status="저장된 전사록과 회의록을 불러왔어요."
         } else {
-            status="전사 편집 후 ‘회의록 생성’으로 결과를 저장하세요."
+            status="전사 편집 후 ‘회의록 생성’으로 결과를 저장해 주세요."
         }
         return true
     }
@@ -298,7 +299,7 @@ struct MeetingWorkRecord: Codable {
     private func enqueue(_ id:UUID,force:Bool=false) {
         guard activeSessions.contains(id),force || !manualOnlySessions.contains(id),let record=records[id],!record.segments.isEmpty,force || record.revision>record.savedRevision else { return }
         guard record.provider.isAvailable else {
-            if sessionID == id { status="전사문 보관 중 · 회의록 설정에서 AI CLI 사용을 선택하세요." }
+            if sessionID == id { status="전사문 보관 중 · 회의록 설정에서 AI CLI 사용을 선택해 주세요." }
             return
         }
         if runningID==id { return }
@@ -383,14 +384,14 @@ extension MeetingWorkspace {
         records[id]?.editedOutput=url.path;persist(id)
         editedPreview=text;editedURL=url;editedRevision=UUID()
         let revision=editedRevision
-        status="채팅 편집본 저장 완료 · 자동 생성본은 별도로 보관합니다."
-        return EditingReceipt(note:"회의록 편집본을 저장했습니다. 회의록 화면과 파일에서 확인할 수 있습니다.",url:url) { [weak self] in
+        status="채팅 편집본 저장 완료 · 자동 생성본은 별도로 보관해요."
+        return EditingReceipt(note:"회의록 편집본을 저장했어요. 회의록 화면과 파일에서 확인할 수 있어요.",url:url) { [weak self] in
             guard let self, self.sessionID==id, self.editedRevision==revision else { throw EditingError.stale }
             if let previous { try Data(previous.utf8).write(to:url,options:.atomic) }
             else { try FileManager.default.removeItem(at:url) }
             self.records[id]?.editedOutput=previousOutput;self.persist(id)
             self.editedPreview=previous;self.editedURL=previous == nil ? nil : url;self.editedRevision=UUID()
-            self.status="회의록 편집을 되돌렸습니다."
+            self.status="회의록 편집을 되돌렸어요."
         }
     }
 }

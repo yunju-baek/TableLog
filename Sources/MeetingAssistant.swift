@@ -9,7 +9,7 @@ import Foundation
     @Published var summaryInterval: Int { didSet { defaults.set(max(30,summaryInterval),forKey:"assistant.summaryInterval") } }
     @Published var suggestionInterval: Int { didSet { defaults.set(max(60,suggestionInterval),forKey:"assistant.suggestionInterval") } }
     @Published private(set) var busy=false
-    @Published private(set) var status="회의를 준비하면 도우미가 맥락을 이어갑니다."
+    @Published private(set) var status="회의를 준비하면 도우미가 맥락을 이어가요."
     @Published private(set) var error: String?
     @Published private(set) var state=AssistantState()
     @Published private(set) var runs:[AssistantRunLog]=[]
@@ -84,8 +84,8 @@ import Foundation
                     runs=(try? JSONDecoder().decode([AssistantRunLog].self,from:Data(contentsOf:folder(next.id).appendingPathComponent("runs.json")))) ?? []
                     for i in state.questions.indices where state.questions[i].status=="running" { state.questions[i].status="queued" }
                     for i in runs.indices where runs[i].status=="running" { runs[i].status="interrupted";runs[i].message="앱 재시작 후 요청 대기" }
-                    status="저장된 회의 도우미 기록을 불러왔습니다."
-                } catch { loadFailed=true;self.error="도우미 기록 복구를 확인해 주세요. 원본 기록은 저장 폴더에 보관되어 있습니다. " + error.localizedDescription }
+                    status="저장된 회의 도우미 기록을 불러왔어요."
+                } catch { loadFailed=true;self.error="도우미 기록 복구를 확인해 주세요. 원본 기록은 저장 폴더에 보관돼 있어요. " + error.localizedDescription }
             } else { status="회의 맥락 수집 중 · 기본 \(max(30,summaryInterval))초마다 요약";error=nil }
         }
         let wasEnded=record?.ended ?? next.ended
@@ -156,12 +156,12 @@ import Foundation
         if !found { summaryPending=true;explicitSummary=true }
         persist();startIfNeeded(force:true)
     }
-    func cancel() { stop(requeue:false);status="도우미 분석을 중단했습니다. 저장된 요약과 근거를 확인할 수 있습니다." }
+    func cancel() { stop(requeue:false);status="도우미 분석을 중단했어요. 저장된 요약과 근거를 확인할 수 있어요." }
     func resetForNewSession() {
         // Persist the previous session's completed content and stop its pending work before clearing the view.
         stop(requeue:false)
         record=nil;audioURL=nil;state=AssistantState();runs=[]
-        status="새 회의를 준비하면 도우미가 맥락을 살펴봅니다.";error=nil
+        status="새 회의를 준비하면 도우미가 맥락을 살펴봐요.";error=nil
         receivedFingerprint="";recordedSourceSignature="";stableSince=[:]
         loadFailed=false;failures=0;nextAttempt = .distantPast;lastStart = .distantPast;refreshAfter = .distantFuture
         didChange?()
@@ -253,7 +253,7 @@ import Foundation
         guard question != nil || summaryPending else { return }
         let explicit=question != nil || explicitSummary
         guard let request=buildRequest(question:question,explicit:explicit) else { return }
-        if question==nil && request.evidence.isEmpty { summaryPending=false;explicitSummary=false;status="발언이나 회의자료를 추가하면 요약할 수 있습니다.";return }
+        if question==nil && request.evidence.isEmpty { summaryPending=false;explicitSummary=false;status="발언이나 회의자료를 추가하면 요약할 수 있어요.";return }
         if let question,let i=state.questions.firstIndex(where:{$0.id==question.id}) { state.questions[i].status="running" }
         if question==nil { summaryPending=false;explicitSummary=false }
         let token=generation,date=now(),runFolder=folder(record.id).appendingPathComponent("runs").appendingPathComponent(request.runID.uuidString)
@@ -358,7 +358,7 @@ import Foundation
         }
         if let id=request.questionID,let i=state.questions.firstIndex(where:{$0.id==id}) {
             state.questions[i].answer=response.answer;state.questions[i].evidence=evidence(response.answerEvidenceIDs);state.questions[i].status="completed";state.questions[i].completedAt=date
-            if stale(response.answerEvidenceIDs) { state.questions[i].error="응답의 근거가 변경되었습니다. 새 질문으로 최신 맥락을 확인해 주세요." }
+            if stale(response.answerEvidenceIDs) { state.questions[i].error="응답의 근거가 바뀌었어요. 새 질문으로 최신 맥락을 확인해 주세요." }
         }
         state.coverageSeconds=max(state.coverageSeconds,request.coveredThroughSeconds);state.updatedAt=date;state.lastRunID=request.runID;state.lastSummaryAt=date
         if request.reviewSuggestions { state.lastSuggestionAt=date }
@@ -416,7 +416,7 @@ import Foundation
         guard let value,!value.summary.isEmpty || !value.suggestions.isEmpty || !value.questions.isEmpty else { return "" }
         func safe(_ s:String)->String { s.replacingOccurrences(of:"\n",with:" ") }
         func sources(_ refs:[AssistantEvidence])->String { refs.map { $0.title+" · "+$0.location }.joined(separator:" / ") }
-        var lines=["", "# 회의 도우미 기록", "", "AI 요약·제안과 사용자 확인 이력입니다. 근거 발언과 자료를 함께 확인합니다.", "", "- 반영 범위: "+MeetingMinutesRenderer.time(value.coverageSeconds), "- 현재 안건: "+safe(value.currentAgenda), "", "## 누적 요약", ""]
+        var lines=["", "# 회의 도우미 기록", "", "AI 요약·제안과 사용자 확인 이력이에요. 근거 발언과 자료를 함께 확인해요.", "", "- 반영 범위: "+MeetingMinutesRenderer.time(value.coverageSeconds), "- 현재 안건: "+safe(value.currentAgenda), "", "## 누적 요약", ""]
         for item in value.summary { lines.append("- "+safe(item.text)+(item.stale ? " · 근거 재검토" : "")+" — "+sources(item.evidence)) }
         lines += ["", "## 결정 후보와 사용자 확인", ""]
         for item in value.decisionCandidates { lines.append("- ["+(item.confirmed ? "사용자 확인" : "결정 후보")+(item.stale ? " · 근거 재검토" : "")+"] "+safe(item.text)+" — "+sources(item.evidence)) }
@@ -425,7 +425,7 @@ import Foundation
         lines += ["", "## 도우미 제안 이력", ""]
         for item in value.suggestions { lines.append("- [\(item.status.title)] \(safe(item.title)) · \(safe(item.reason)) · 확인할 전제: \(safe(item.premise)) — \(sources(item.evidence))"+(item.stale ? " · 근거 재검토" : "")) }
         let selectedQuestions=value.questions.filter { $0.includedInMinutes == true }
-        if !selectedQuestions.isEmpty { lines += ["", "## 사용자 추가 메모 · 도우미 대화", "", "사용자가 회의 메모에 추가한 질문과 AI 답변입니다.", ""] }
+        if !selectedQuestions.isEmpty { lines += ["", "## 사용자 추가 메모 · 도우미 대화", "", "사용자가 회의 메모에 추가한 질문과 AI 답변이에요.", ""] }
         for q in selectedQuestions { lines.append("- 사용자 질문: "+safe(q.text));if let answer=q.answer { lines.append("  - AI 답변: "+safe(answer)+" — "+sources(q.evidence)) } }
         let allEvidence=(value.summary+value.decisionCandidates+value.openQuestions).flatMap(\.evidence)+value.suggestions.flatMap(\.evidence)+selectedQuestions.flatMap(\.evidence)
         var seen=Set<String>()

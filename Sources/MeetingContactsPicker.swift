@@ -31,7 +31,7 @@ import AppKit
                 Spacer()
                 Button("닫기", action: onClose).keyboardShortcut(.cancelAction)
             }
-            Text("Mac 연락처에서 연락처가 동기화된 계정을 선택하세요. 계정과 기본 연락처를 기억해 다음에도 바로 불러옵니다. 별표 버튼으로 기본 연락처를 바꿀 수 있습니다.")
+            Text("Mac 연락처에서 연락처가 동기화된 계정을 선택해 주세요. 계정과 기본 연락처를 기억해 다음에도 바로 불러와요. 별표 버튼으로 기본 연락처를 바꿀 수 있어요.")
                 .font(.callout).foregroundStyle(.secondary)
             if !connected {
                 Button(connecting ? "연락처 연결 중…" : "Mac 연락처 연결") { connect() }
@@ -84,7 +84,7 @@ import AppKit
                         .accessibilityLabel(person.name + " 기본 연락처로 저장")
                 }
             }
-            Text("템플릿의 참석자 후보는 다음 회의에서도 재사용할 수 있습니다. 실제 화자와 참석 여부는 회의마다 확인합니다.")
+            Text("템플릿의 참석자 후보는 다음 회의에서도 재사용할 수 있어요. 실제 화자와 참석 여부는 회의마다 확인해요.")
                 .font(.caption).foregroundStyle(.secondary)
         }.padding(22).frame(width: 550, height: 570)
             .task(id: searchKey) {
@@ -99,11 +99,11 @@ import AppKit
                     guard source == sourceID, term == query else { return }
                     people = results; searching = false
                     preferredPerson = results.first { $0.id == preferences.preferredPersonID(sourceID: source) }
-                    message = results.isEmpty ? "검색 결과가 없습니다. 이름·소속 또는 선택한 계정을 확인하세요." : "\(results.count)명 · 연결할 사람을 선택하세요."
+                    message = results.isEmpty ? "검색 결과가 없어요. 이름·소속 또는 선택한 계정을 확인해 주세요." : "\(results.count)명 · 연결할 사람을 선택해 주세요."
                 } catch {
                     if !Task.isCancelled {
                         searching = false
-                        message = "연락처를 읽을 수 없습니다. 시스템 설정의 연락처 접근 권한과 계정 동기화를 확인하세요."
+                        message = "연락처를 읽을 수 없어요. 시스템 설정의 연락처 접근 권한과 계정 동기화를 확인해 주세요."
                     }
                 }
             }
@@ -137,8 +137,8 @@ import AppKit
                 sources = available; connected = true
                 sourceID = preferences.resolveSource(available: available.map(\.id), systemDefault: systemDefault)
                 refreshRevision += 1
-                message = available.isEmpty ? "연락처 계정이 없습니다. Mac 인터넷 계정에서 연락처 동기화를 켜 주세요." :
-                    (sourceID.isEmpty ? "저장한 연락처 계정을 확인해 주세요. 사용할 계정을 선택하면 새 기본값으로 기억합니다." : "기본 연락처 계정을 연결했습니다. 계정을 바꾸면 다음에도 해당 계정을 사용합니다.")
+                message = available.isEmpty ? "연락처 계정이 없어요. Mac 인터넷 계정에서 연락처 동기화를 켜 주세요." :
+                    (sourceID.isEmpty ? "저장한 연락처 계정을 확인해 주세요. 사용할 계정을 선택하면 새 기본값으로 기억해요." : "기본 연락처 계정을 연결했어요. 계정을 바꾸면 다음에도 이 계정을 사용해요.")
             } catch {
                 if !Task.isCancelled { message = "시스템 설정 → 개인정보 보호 및 보안 → 연락처에서 테이블로그의 접근을 허용해 주세요." }
             }

@@ -47,11 +47,11 @@ struct MeetingWorkspaceView: View {
             }.pickerStyle(.segmented)
             if tab==0 { settings } else if tab==2 { MeetingMaterialsView(materials:model.materials,model:model) } else if tab==3 { lectureNotes } else {
                 if workspace.isShowingEditedDraft {
-                    Label("채팅 편집본 · 자동 생성본은 저장 폴더에서 확인할 수 있습니다.", systemImage: "pencil.line")
+                    Label("채팅 편집본 · 자동 생성본은 저장 폴더에서 확인할 수 있어요.", systemImage: "pencil.line")
                         .font(.caption).foregroundStyle(AppTheme.violet)
                 }
                 if workspace.hasOutdatedMinutes {
-                    Label("이전 저장본 · 최신 편집 내용을 반영하려면 회의록을 다시 생성하세요.",systemImage:"clock")
+                    Label("이전 저장본 · 최신 편집 내용을 반영하려면 회의록을 다시 생성해 주세요.",systemImage:"clock")
                         .font(.caption).foregroundStyle(AppTheme.violet)
                 }
                 if workspace.preview.isEmpty {
@@ -59,7 +59,7 @@ struct MeetingWorkspaceView: View {
                         Image(systemName:"doc.text").font(.largeTitle).foregroundStyle(AppTheme.violet)
                         Text(workspace.busy ? "회의록 생성 중" : "회의록 생성 대기").font(.title3.bold())
                         Text(workspace.displayStatus).font(.callout).foregroundStyle(.secondary)
-                        Text("전사는 저장된 기록에서 확인할 수 있습니다. 회의록 작성이 끝나면 문서 미리보기를 표시합니다.")
+                        Text("전사는 저장된 기록에서 확인할 수 있어요. 회의록 작성이 끝나면 문서 미리보기를 표시해요.")
                             .font(.caption).foregroundStyle(.secondary)
                     }.frame(maxWidth:.infinity,maxHeight:.infinity)
                 } else {
@@ -98,7 +98,7 @@ struct MeetingWorkspaceView: View {
     private var lectureNotes: some View {
         VStack(alignment:.leading, spacing:12) {
             Text("수강자 메모").font(.headline)
-            Text("추가 시점의 녹음 경과 시간을 함께 저장합니다. 녹음 전 메모는 00:00으로 표시합니다.").font(.caption).foregroundStyle(.secondary)
+            Text("추가 시점의 녹음 경과 시간을 함께 저장해요. 녹음 전 메모는 00:00으로 표시해요.").font(.caption).foregroundStyle(.secondary)
             TextEditor(text:$lectureNote).frame(height:100).overlay(RoundedRectangle(cornerRadius:5).stroke(.gray.opacity(0.3)))
             Button("메모 추가") {
                 let value=lectureNote.trimmingCharacters(in:.whitespacesAndNewlines)
@@ -124,7 +124,7 @@ struct MeetingWorkspaceView: View {
                     ForEach(RecordMode.allCases, id:\.self) { Text($0.title).tag($0) }
                 }.pickerStyle(.segmented).onChange(of:workspace.mode) { _, _ in model.syncMeetingMinutes(force:true) }
                 if workspace.mode == .lecture {
-                    Text("강의 흐름에 따라 주제를 나누어 정리합니다. 자료·맥락에서 슬라이드 이미지와 문서를 추가하고 수강자 메모를 별도로 기록할 수 있습니다.").font(.callout).foregroundStyle(.secondary)
+                    Text("강의 흐름에 따라 주제를 나누어 정리해요. 자료·맥락에서 슬라이드 이미지와 문서를 추가하고 수강자 메모를 별도로 기록할 수 있어요.").font(.callout).foregroundStyle(.secondary)
                 }
                 GroupBox("기록 설정") {
                     VStack(alignment:.leading,spacing:10) {
@@ -155,7 +155,7 @@ struct MeetingWorkspaceView: View {
                 GroupBox("참석자 · 화자 연결") {
                     VStack(alignment:.leading,spacing:9) {
                         if !workspace.selectedTemplate.participantCandidates.isEmpty {
-                            Text("템플릿 참석자 후보 · 이번 참석 여부를 확인하세요.").font(.caption).foregroundStyle(.secondary)
+                            Text("템플릿 참석자 후보 · 이번 참석 여부를 확인해 주세요.").font(.caption).foregroundStyle(.secondary)
                             ForEach(workspace.selectedTemplate.participantCandidates) { person in
                                 HStack {
                                     personLabel(person)
@@ -195,7 +195,7 @@ struct MeetingWorkspaceView: View {
                                 Button("연락처 연결") { contactSpeaker=speaker;contactPicker=true }
                             }
                         }
-                        Text("음성의 화자 번호를 확인한 뒤 이름을 연결하세요. 연락처 연결은 현재 회의에 적용됩니다.").font(.caption).foregroundStyle(.secondary)
+                        Text("음성의 화자 번호를 확인한 뒤 이름을 연결해 주세요. 연락처 연결은 현재 회의에 적용돼요.").font(.caption).foregroundStyle(.secondary)
                     }.padding(7)
                 }
                 GroupBox("회의록 자동 저장") {
@@ -214,9 +214,9 @@ struct MeetingWorkspaceView: View {
                             }
                         }
                         if workspace.provider != .codex {
-                            Text("이 회의의 회의록 작성과 자료 분석에 사용할 AI CLI를 선택해 주세요. ‘AI CLI 사용’을 누르면 설정이 적용됩니다.").font(.caption).foregroundStyle(AppTheme.violet)
+                            Text("이 회의의 회의록 작성과 자료 분석에 사용할 AI CLI를 선택해 주세요. ‘AI CLI 사용’을 누르면 설정이 적용돼요.").font(.caption).foregroundStyle(AppTheme.violet)
                         }
-                        Text("회의 개요·핵심 요약·안건별 논의·결정 사항·후속 조치로 구성한 Markdown 파일을 갱신합니다. 전사와 근거 시각은 앱의 전사 화면에서 확인합니다. 선택한 AI CLI에 전사문·이름·주제와 회의자료의 추출문을 전달해 회의록을 작성합니다. CLI와 모델은 ‘AI 설정’에서 변경할 수 있습니다.").font(.caption).foregroundStyle(.secondary)
+                        Text("회의 개요·핵심 요약·안건별 논의·결정 사항·후속 조치로 구성한 Markdown 파일을 갱신해요. 전사와 근거 시각은 앱의 전사 화면에서 확인해요. 선택한 AI CLI에 전사문·이름·주제와 회의자료의 추출문을 전달해 회의록을 작성해요. CLI와 모델은 ‘AI 설정’에서 변경할 수 있어요.").font(.caption).foregroundStyle(.secondary)
                     }.padding(7)
                 }
             }.padding(.trailing,5)
@@ -228,7 +228,7 @@ struct MeetingWorkspaceView: View {
     private func importTemplate() {
         let panel=NSOpenPanel();panel.allowsMultipleSelection=false
         panel.allowedContentTypes=[.plainText,UTType(filenameExtension:"md") ?? .plainText]
-        panel.message="기존 Markdown 또는 텍스트 회의자료를 선택하세요. 형식과 주제를 새 템플릿으로 검토할 수 있습니다."
+        panel.message="기존 Markdown 또는 텍스트 회의자료를 선택해 주세요. 형식과 주제를 새 템플릿으로 검토할 수 있어요."
         panel.begin { response in
             guard response == .OK,let url=panel.url else { return }
             do {
@@ -238,7 +238,7 @@ struct MeetingWorkspaceView: View {
                 let headings=source.components(separatedBy:.newlines).filter {$0.hasPrefix("## ")}.map {String($0.dropFirst(3))}
                 template.similarTopics=Array(headings.prefix(20))
                 editor=template
-            } catch { workspace.report("회의자료를 UTF-8 Markdown·텍스트로 저장한 뒤 다시 선택하세요. " + error.localizedDescription) }
+            } catch { workspace.report("회의자료를 UTF-8 Markdown·텍스트로 저장한 뒤 다시 선택해 주세요. " + error.localizedDescription) }
         }
     }
 }
@@ -280,7 +280,7 @@ private struct MeetingTemplateEditor:View {
             TextEditor(text:$template.markdown).font(.system(size:12,design:.monospaced)).border(.quaternary)
             Text("변수: {{title}}, {{overview}}, {{datetime}}, {{participants}}, {{purpose}}, {{summary}}, {{decisions}}, {{actions}}, {{discussion}}, {{open_issues}}")
                 .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-            Text("참석자와 주제는 다음 회의의 후보로 저장됩니다. 이번 회의의 내용은 전사문을 근거로 작성합니다.").font(.caption).foregroundStyle(.secondary)
+            Text("참석자와 주제는 다음 회의의 후보로 저장돼요. 이번 회의의 내용은 전사문을 근거로 작성해요.").font(.caption).foregroundStyle(.secondary)
             if let error { Text(error).font(.caption).foregroundStyle(.orange) }
             HStack {
                 Button("기본 형식 적용") { template.markdown=MeetingWorkspace.defaultTemplate.markdown }
@@ -290,11 +290,11 @@ private struct MeetingTemplateEditor:View {
                     template.name=String(template.name.trimmingCharacters(in:.whitespacesAndNewlines).prefix(120))
                     template.similarTopics=topics.components(separatedBy:CharacterSet(charactersIn:",\n")).map {$0.trimmingCharacters(in:.whitespacesAndNewlines)}.filter {!$0.isEmpty}
                     template = template.minutesOnly
-                    guard !template.name.isEmpty,["{{summary}}","{{discussion}}","{{decisions}}","{{actions}}"].contains(where:template.markdown.contains) else { error="템플릿 이름과 회의 본문 변수를 입력하세요.";return }
+                    guard !template.name.isEmpty,["{{summary}}","{{discussion}}","{{decisions}}","{{actions}}"].contains(where:template.markdown.contains) else { error="템플릿 이름과 회의 본문 변수를 입력해 주세요.";return }
                     do {
                         _ = try MeetingMinutesRenderer.render(MeetingMinutesSnapshot(sessionID:UUID(),revision:0,date:"",purpose:"",confirmedParticipants:[],speakerBindings:[:],utterances:[],facts:MeetingMinutesFacts()),template:template)
                         onSave(template);onClose()
-                    } catch { self.error="사용 가능한 변수 이름을 확인하세요." }
+                    } catch { self.error="사용 가능한 변수 이름을 확인해 주세요." }
                 }.buttonStyle(.borderedProminent)
             }
         }.padding(22).frame(width:760,height:650)

@@ -185,6 +185,9 @@ final class ControlledMicrophone: MicrophoneCapturing {
         check(minutes.preview.contains("회의록 편집본"),"automatic baseline cannot overwrite draft")
         let reopened=MeetingWorkspace(directory:root.appendingPathComponent("Minutes"),defaults:defaults)
         reopened.begin(id:model.editingSessionID)
+        check(reopened.metadata?.id == model.editingSessionID
+              && reopened.metadata?.segments.count == minutes.metadata?.segments.count,
+              "a saved session restores its metadata when opened after deferred startup")
         check(reopened.preview==minutes.preview,"minutes edit survives reopen")
         check(minutes.metadata?.editedOutput==minutesReceipt.url?.path,"history points to edited minutes")
         try minutesReceipt.undo();check(!minutes.isShowingEditedDraft,"minutes undo returns generated view")

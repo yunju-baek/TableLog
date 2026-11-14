@@ -128,14 +128,14 @@ enum VoiceLearningTrainer {
                 acceptedNegatives = allNegatives.filter { oldNegativeIDs.contains($0.id) }
                 limit = previous.prototypeLimit
                 state = .retainedPrevious
-                report.note += " 기존 판정 매개변수를 유지하고 추가 자료를 다음 학습에 보관했습니다."
+                report.note += " 기존 판정 매개변수를 유지하고 추가 자료를 다음 학습에 보관했어요."
             } else {
                 // Explicit deletion/label correction takes precedence over restoring obsolete parameters.
                 // Rebuild the comparison centroid from the permitted corpus; keep automatic mapping gated.
                 parameters = fit(positives, negatives: [], limit: 1)
                 acceptedNegatives = []
                 limit = 1
-                report.note += " 현재 허용된 자료의 비교 기준 벡터를 유지했습니다. 추가 출처 확인 후 다시 학습합니다."
+                report.note += " 현재 허용된 자료의 비교 기준 벡터를 유지했어요. 추가 출처 확인 후 다시 학습해요."
             }
         }
         let sameParameters = previous.map {
@@ -306,7 +306,7 @@ enum VoiceLearningTrainer {
         var report = VoiceLearningValidation(positiveRecall: nil, falseAcceptRate: nil,
                          baselinePositiveRecall: nil, baselineFalseAcceptRate: nil,
                          heldOutPositiveCount: 0, heldOutNegativeCount: 0, sourceFoldCount: 0,
-                         passed: nil, note: "독립된 본인 녹음 3개와 다른 사람의 독립 녹음 2개부터 출처별 검증을 계산합니다.")
+                         passed: nil, note: "독립된 본인 녹음 3개와 다른 사람의 독립 녹음 2개부터 출처별 검증을 계산해요.")
         guard sources.count >= 3 else { return report }
         // With one registered identity, measure own-voice recall only; impostor acceptance stays unmeasured.
         let selectedSources: [String] = sources.count <= 6 ? sources : (0..<6).map { sources[$0 * (sources.count - 1) / 5] }
@@ -372,14 +372,14 @@ enum VoiceLearningTrainer {
               let recall = report.positiveRecall, let falseAccept = report.falseAcceptRate,
               let oldRecall = report.baselinePositiveRecall, let oldFalseAccept = report.baselineFalseAcceptRate else {
             report.note = usableNegatives.isEmpty
-                ? "본인 녹음을 출처별로 분리해 재인식률을 계산했습니다. 다른 사람의 독립 녹음 2개부터 오인 수락률을 함께 검증합니다."
-                : "출처별 검증을 계산했습니다. 비교 모델에 독립 녹음이 더 모이면 이전 판정과 개선 여부를 비교합니다."
+                ? "본인 녹음을 출처별로 분리해 재인식률을 계산했어요. 다른 사람의 독립 녹음 2개부터 오인 수락률을 함께 검증해요."
+                : "출처별 검증을 계산했어요. 비교 모델에 독립 녹음이 더 모이면 이전 판정과 개선 여부를 비교해요."
             return report
         }
         report.passed = recall + 1e-9 >= oldRecall && falseAccept <= oldFalseAccept + 1e-9 && recall >= 0.60 && falseAccept <= 0.10
         report.note = report.passed == true
-            ? "출처별 교차 검증에서 본인 재인식률과 다른 사람의 오인 수락률이 비교 기준을 충족했습니다. 수치는 등록된 검증 자료의 결과입니다."
-            : "출처별 교차 검증에서 기존 판정 보존 기준 또는 본인 재인식 60%·오인 수락 10% 기준을 추가 확인해야 합니다."
+            ? "출처별 교차 검증에서 본인 재인식률과 다른 사람의 오인 수락률이 비교 기준을 충족했어요. 수치는 등록된 검증 자료의 결과예요."
+            : "출처별 교차 검증에서 기존 판정 보존 기준 또는 본인 재인식 60%·오인 수락 10% 기준을 추가 확인해야 해요."
         return report
     }
 }

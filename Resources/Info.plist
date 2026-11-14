@@ -23,13 +23,13 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>26.0</string>
 	<key>NSContactsUsageDescription</key>
-	<string>Mac에 동기화된 연락처에서 선택한 이름과 소속을 회의 참석자 및 화자에 연결합니다.</string>
+	<string>Mac에 동기화된 연락처에서 선택한 이름과 소속을 회의 참석자 및 화자에 연결해요.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>테이블로그 · NVIDIA NeMo-Speech.cpp 기반 개인용 전사 앱</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>마이크 음성을 인식해 화자별 발언과 시간을 기록합니다. Gemini 모드에서는 음성 구간을 Google로 전송하고 화자를 이 Mac에서 구분합니다.</string>
+	<string>마이크 음성을 인식해 화자별 발언과 시간을 기록해요. Gemini 모드에서는 음성 구간을 Google로 전송하고 화자를 이 Mac에서 구분해요.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>

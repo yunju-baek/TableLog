@@ -54,7 +54,7 @@ final class VoiceEmbedding: @unchecked Sendable {
             if power > 0.000025 { active += 1 }
         }
         guard rms > 0.008, clipped < 0.03, Double(active) / Double(max(1,frames)) > 0.35 else {
-            throw VoiceFailure(message: "음성이 작거나 무음·과입력이 많습니다. 가까운 거리에서 깨끗하게 녹음해 주세요.")
+            throw VoiceFailure(message: "음성이 작거나 무음·과입력이 많아요. 가까운 거리에서 깨끗하게 녹음해 주세요.")
         }
     }
     func extract(_ pcm: [Float]) async throws -> [Float] {
@@ -86,7 +86,7 @@ final class VoiceEmbedding: @unchecked Sendable {
     static func readAudio(_ url: URL, start: Double = 0, duration: Double = 30) throws -> [Float] {
         guard start.isFinite, duration.isFinite, start >= 0, duration >= 3, duration <= 60 else { throw VoiceFailure(message:"시작 시간과 3~60초 범위를 확인해 주세요.") }
         let file = try AVAudioFile(forReading:url)
-        guard start < Double(file.length) / file.processingFormat.sampleRate else { throw VoiceFailure(message:"선택한 시작 시간이 음성 길이를 초과합니다.") }
+        guard start < Double(file.length) / file.processingFormat.sampleRate else { throw VoiceFailure(message:"선택한 시작 시간이 음성 길이를 초과해요.") }
         file.framePosition = AVAudioFramePosition(start * file.processingFormat.sampleRate)
         let end = min(file.length, file.framePosition + AVAudioFramePosition(duration * file.processingFormat.sampleRate))
         let format = AVAudioFormat(commonFormat:.pcmFormatFloat32,sampleRate:16000,channels:1,interleaved:false)!

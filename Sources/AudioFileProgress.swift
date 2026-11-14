@@ -33,15 +33,15 @@ struct AudioFileProgress: Equatable, Sendable {
     var statusText: String {
         switch stage {
         case .preparingEngine:
-            return "음성 엔진을 준비하고 있습니다."
+            return "음성 엔진을 준비하고 있어요."
         case .openingFile:
-            return "음성 파일을 여는 중입니다."
+            return "음성 파일을 여는 중이에요."
         case .transcribing:
-            return "음성을 전사하고 있습니다. \(durationText)"
+            return "음성을 전사하고 있어요. \(durationText)"
         case .waitingForCloud:
-            return "Gemini 전사를 기다리고 있습니다. \(durationText)"
+            return "Gemini 전사를 기다리고 있어요. \(durationText)"
         case .finishing:
-            return "남은 전사 결과를 정리하고 있습니다. \(durationText)"
+            return "남은 전사 결과를 정리하고 있어요. \(durationText)"
         }
     }
 

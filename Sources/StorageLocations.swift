@@ -37,8 +37,8 @@ enum StorageLocations {
     static var startupError: String? { active.startupError }
     static var status: String {
         if let error = active.startupError { return error }
-        if pendingRoot != nil { return "새 저장 위치는 앱을 다시 실행할 때 적용됩니다. 현재 회의는 현재 위치에 저장됩니다." }
-        return active.migrationSummary ?? "회의 자료와 음성을 이 폴더에 보관합니다."
+        if pendingRoot != nil { return "새 저장 위치는 앱을 다시 실행할 때 적용돼요. 현재 회의는 현재 위치에 저장돼요." }
+        return active.migrationSummary ?? "회의 자료와 음성을 이 폴더에 보관해요."
     }
     static func requestRoot(_ url: URL) throws { _ = active; try coordinator.requestRoot(url) }
     static func cancelPending() { _ = active; coordinator.cancelPending() }
@@ -120,8 +120,8 @@ final class StorageCoordinator {
             if source != target {
                 try validateRelationship(target, source: source)
                 let count = try migrate(source: source, legacy: legacy, target: target)
-                summary = count == 0 ? nil : "\(count)개 파일을 새 저장 위치에 복사했습니다. 기존 원본은 이전 위치에 보관되어 있습니다."
-                if let completedBackup { summary = (summary ?? "저장 위치를 적용했습니다.") + " 이전 목적지 자료 백업: " + completedBackup.path }
+                summary = count == 0 ? nil : "\(count)개 파일을 새 저장 위치에 복사했어요. 기존 원본은 이전 위치에 보관돼 있어요."
+                if let completedBackup { summary = (summary ?? "저장 위치를 적용했어요.") + " 이전 목적지 자료 백업: " + completedBackup.path }
             } else {
                 try ensureCategories(root: target)
             }
@@ -135,7 +135,7 @@ final class StorageCoordinator {
             snapshot = result; return result
         } catch {
             let result = StorageSnapshot(root: source, legacyLayout: legacy,
-                startupError: "저장 위치 적용을 보류했습니다. 기존 저장 위치를 사용합니다. \(error.localizedDescription)", migrationSummary: nil)
+                startupError: "저장 위치 적용을 보류했어요. 기존 저장 위치를 사용해요. \(error.localizedDescription)", migrationSummary: nil)
             snapshot = result; return result
         }
     }
@@ -180,7 +180,7 @@ final class StorageCoordinator {
         var isDirectory: ObjCBool = false
         guard fm.fileExists(atPath: target.path, isDirectory: &isDirectory) else { return }
         guard isDirectory.boolValue, try fm.contentsOfDirectory(atPath: target.path).allSatisfy({ $0 == ".DS_Store" }) || isManagedDestination(target) else {
-            throw StorageLocationError(message: "선택한 위치에 파일이 있습니다. TableLog 전용 빈 폴더를 선택해 주세요: \(target.path)")
+            throw StorageLocationError(message: "선택한 위치에 파일이 있어요. TableLog 전용 빈 폴더를 선택해 주세요: \(target.path)")
         }
     }
     private func probeWritable(_ target: URL) throws {
@@ -317,13 +317,13 @@ final class StorageCoordinator {
         var destinations = Set<String>()
         for entry in sourceEntries {
             let relative = mappedRelative(entry.relativePath, legacy: legacy)
-            guard destinations.insert(relative).inserted else { throw StorageLocationError(message: "저장 자료에 같은 목적지의 파일이 있습니다: \(relative)") }
+            guard destinations.insert(relative).inserted else { throw StorageLocationError(message: "저장 자료에 같은 목적지의 파일이 있어요: \(relative)") }
             let original = source.appendingPathComponent(entry.relativePath), copied = stage.appendingPathComponent(relative)
             if entry.directory { try fm.createDirectory(at: copied, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]); continue }
             try fm.createDirectory(at: copied.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try fm.copyItem(at: original, to: copied)
             let (copiedSize, copiedHash) = try checksum(copied)
-            guard copiedSize == entry.size, copiedHash == entry.sha256 else { throw StorageLocationError(message: "복사한 자료의 무결성 확인이 필요합니다: \(relative)") }
+            guard copiedSize == entry.size, copiedHash == entry.sha256 else { throw StorageLocationError(message: "복사한 자료의 무결성 확인이 필요해요: \(relative)") }
             let suffix = copied.pathExtension.lowercased()
             if isOwnedJSON(relative), suffix == "json" || suffix == "jsonl" {
                 let originalData = try Data(contentsOf: copied)
@@ -332,7 +332,7 @@ final class StorageCoordinator {
                     let permissions = try fm.attributesOfItem(atPath: copied.path)[.posixPermissions] ?? 0o600
                     try rewritten.write(to: copied, options: .atomic)
                     try fm.setAttributes([.posixPermissions: permissions], ofItemAtPath: copied.path)
-                    guard try Data(contentsOf: copied) == rewritten else { throw StorageLocationError(message: "저장 경로 기록의 무결성 확인이 필요합니다: \(relative)") }
+                    guard try Data(contentsOf: copied) == rewritten else { throw StorageLocationError(message: "저장 경로 기록의 무결성 확인이 필요해요: \(relative)") }
                 }
             }
             if suffix == "md", relative.hasPrefix("Minutes/") || relative.hasPrefix("Assistant/") {
@@ -343,7 +343,7 @@ final class StorageCoordinator {
                         let permissions = try fm.attributesOfItem(atPath: copied.path)[.posixPermissions] ?? 0o600
                         try Data(updated.utf8).write(to: copied, options: .atomic)
                         try fm.setAttributes([.posixPermissions: permissions], ofItemAtPath: copied.path)
-                        guard try Data(contentsOf: copied) == Data(updated.utf8) else { throw StorageLocationError(message: "회의록 경로 기록의 무결성 확인이 필요합니다: \(relative)") }
+                        guard try Data(contentsOf: copied) == Data(updated.utf8) else { throw StorageLocationError(message: "회의록 경로 기록의 무결성 확인이 필요해요: \(relative)") }
                     }
                 }
             }
@@ -353,7 +353,7 @@ final class StorageCoordinator {
         try JSONEncoder().encode(receipt).write(to: stage.appendingPathComponent(Self.receiptName), options: .atomic)
         try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stage.appendingPathComponent(Self.receiptName).path)
         try beforeCommit?()
-        guard try entries(source) == sourceEntries else { throw StorageLocationError(message: "복사 중 원본 자료가 변경되었습니다. 회의 저장을 마친 뒤 앱을 다시 실행해 주세요.") }
+        guard try entries(source) == sourceEntries else { throw StorageLocationError(message: "복사 중 원본 자료가 바뀌었어요. 회의 저장을 마친 뒤 앱을 다시 실행해 주세요.") }
         try requireUsableDestination(target)
         let existed = fm.fileExists(atPath: target.path)
         let backup = parent.appendingPathComponent("TableLog-저장백업-" + UUID().uuidString, isDirectory: true)

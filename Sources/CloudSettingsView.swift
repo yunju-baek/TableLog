@@ -23,7 +23,7 @@ struct CloudSettingsView: View {
                 Label("인식 엔진", systemImage: "waveform.badge.mic")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(ink)
-                Text("음성 인식 방식을 선택하세요. 화자와 이름은 Mac에서 관리합니다.")
+                Text("음성 인식 방식을 선택해 주세요. 화자와 이름은 Mac에서 관리해요.")
                     .font(.system(size: 12))
                     .lineSpacing(4)
                     .foregroundStyle(.secondary)
@@ -42,11 +42,11 @@ struct CloudSettingsView: View {
 
             if provider == .gemini {
                 VStack(alignment: .leading, spacing: 9) {
-                    Label("Google에서 음성을 전사합니다", systemImage: "cloud")
+                    Label("Google에서 음성을 전사해요", systemImage: "cloud")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(ink)
-                    Text("약 45초 문맥을 모아 Google로 보내고, 30~60초 범위에서 쉼 구간을 우선해 나눕니다. 로컬 초안은 바로 표시하며, Gemini 결과는 구간 수집과 응답 후에 반영됩니다. 종료하면 남은 음성도 전송합니다.")
-                    Text("무료 사용 한도에 도달하면 로컬 초안을 유지합니다.")
+                    Text("약 45초 문맥을 모아 Google로 보내고, 30~60초 범위에서 쉼 구간을 우선해 나눠요. 로컬 초안은 바로 표시하며, Gemini 결과는 구간 수집과 응답 후에 반영돼요. 종료하면 남은 음성도 전송해요.")
+                    Text("무료 사용 한도에 도달하면 로컬 초안을 유지해요.")
                 }
                 .font(.system(size: 11))
                 .lineSpacing(4)
@@ -65,13 +65,13 @@ struct CloudSettingsView: View {
                                 .foregroundStyle(accent)
                         }
                     }
-                    SecureField(model.hasGeminiKey ? "새 키를 입력하면 교체됩니다" : "AI Studio의 API 키 붙여넣기", text: $apiKey)
+                    SecureField(model.hasGeminiKey ? "새 키를 입력하면 교체돼요" : "AI Studio의 API 키 붙여넣기", text: $apiKey)
                         .textFieldStyle(.roundedBorder)
                         .focused($keyFocused)
                         .disabled(!model.canChangeRecognitionProvider)
                         .accessibilityLabel("Gemini API 키 입력")
                         .onSubmit(apply)
-                    Text(model.hasGeminiKey ? "입력란을 비워 두면 저장한 키를 사용합니다. 키는 이 Mac의 키체인에 보관합니다." : "키는 이 Mac의 키체인에 보관합니다.")
+                    Text(model.hasGeminiKey ? "입력란을 비워 두면 저장한 키를 사용해요. 키는 이 Mac의 키체인에 보관해요." : "키는 이 Mac의 키체인에 보관해요.")
                         .font(.system(size: 10))
                         .lineSpacing(3)
                         .foregroundStyle(.secondary)
@@ -92,7 +92,7 @@ struct CloudSettingsView: View {
                             .disabled(!model.canChangeRecognitionProvider)
                         }
                     }
-                    Text("계정의 무료 사용 한도와 데이터 처리 조건을 확인하세요.")
+                    Text("계정의 무료 사용 한도와 데이터 처리 조건을 확인해 주세요.")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }
@@ -101,8 +101,8 @@ struct CloudSettingsView: View {
                     Label("Qwen3-ASR 1.7B · 이 Mac에서 전사", systemImage: "desktopcomputer")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(ink)
-                    Text("녹음 중에는 NVIDIA 초안과 화자가 표시됩니다. 녹음이 끝나거나 음성 파일을 읽은 뒤, Qwen이 본문을 다시 전사해 기존 화자와 연결합니다.")
-                    Text("Qwen을 중지하거나 실행 오류가 발생하면 NVIDIA 초안을 저장합니다.")
+                    Text("녹음 중에는 NVIDIA 초안과 화자가 표시돼요. 녹음이 끝나거나 음성 파일을 읽은 뒤, Qwen이 본문을 다시 전사해 기존 화자와 연결해요.")
+                    Text("Qwen을 중지하거나 실행 오류가 발생하면 NVIDIA 초안을 저장해요.")
                 }
                 .font(.system(size: 11))
                 .lineSpacing(4)
@@ -110,10 +110,10 @@ struct CloudSettingsView: View {
                 .fixedSize(horizontal: false, vertical: true)
             } else {
                 VStack(alignment: .leading, spacing: 9) {
-                    Label("이 Mac에서 음성을 전사합니다", systemImage: "desktopcomputer")
+                    Label("이 Mac에서 음성을 전사해요", systemImage: "desktopcomputer")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(ink)
-                    Text("NVIDIA Nemotron으로 한국어를 인식하고, 문맥 교정 설정에 따라 최근 발언과 용어를 참고합니다.")
+                    Text("NVIDIA Nemotron으로 한국어를 인식하고, 문맥 교정 설정에 따라 최근 발언과 용어를 참고해요.")
                         .font(.system(size: 11))
                         .lineSpacing(4)
                         .foregroundStyle(.secondary)
@@ -131,7 +131,7 @@ struct CloudSettingsView: View {
 
             Divider()
             HStack {
-                Text(model.canChangeRecognitionProvider ? "다음 녹음·파일 전사부터 적용됩니다." : "녹음을 마친 뒤 설정을 변경할 수 있어요.")
+                Text(model.canChangeRecognitionProvider ? "다음 녹음·파일 전사부터 적용돼요." : "녹음을 마친 뒤 설정을 변경할 수 있어요.")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

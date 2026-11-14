@@ -80,12 +80,12 @@ struct CodexFailure: LocalizedError {
         switch kind {
         case .unavailable: return "AI CLI 실행 파일 경로를 AI 설정에서 확인해 주세요."
         case .login: return "선택한 AI CLI의 로그인을 완료한 뒤 다시 요청해 주세요."
-        case .quota: return "선택한 AI의 사용 한도에 도달했습니다. 로컬 전사를 계속하고 교정을 대기 상태로 보관합니다."
-        case .model: return "선택한 모델 또는 추론 강도를 사용할 수 없습니다. 문맥 교정 설정을 확인해 주세요."
-        case .timeout: return "AI 응답 대기 시간이 초과되었습니다. 로컬 전사를 유지합니다."
+        case .quota: return "선택한 AI의 사용 한도에 도달했어요. 로컬 전사를 계속하고 교정을 대기 상태로 보관해요."
+        case .model: return "선택한 모델 또는 추론 강도를 사용할 수 없어요. 문맥 교정 설정을 확인해 주세요."
+        case .timeout: return "AI 응답 대기 시간이 초과했어요. 로컬 전사를 유지해요."
         case .process: return "AI CLI의 로그인·연결·모델 설정을 확인한 뒤 다시 요청해 주세요."
-        case .response: return "AI 교정 응답의 발언 ID 또는 형식을 확인해야 합니다. 원문을 유지합니다."
-        case .tool: return "교정 중 도구 실행 요청이 감지되어 결과를 보류했습니다."
+        case .response: return "AI 교정 응답의 발언 ID 또는 형식을 확인해야 해요. 원문을 유지해요."
+        case .tool: return "교정 중 도구 실행 요청이 감지되어 결과를 보류했어요."
         }
     }
     var retryable: Bool { kind == .timeout || kind == .process }

@@ -152,7 +152,7 @@ struct ContentView: View {
                                 }
                                 .buttonStyle(.plain).disabled(!model.canPause)
                                 .keyboardShortcut("p", modifiers: [.command, .shift])
-                                .help("같은 회의에서 녹음을 일시정지하거나 재개합니다. (⇧⌘P)")
+                                .help("같은 회의에서 녹음을 일시정지하거나 재개해요. (⇧⌘P)")
                             }
                             Button(action: model.stop) {
                                 Label("종료 · 저장", systemImage: "stop.fill")
@@ -249,7 +249,7 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity)
                         .disabled(!model.canStart)
                         .environment(\.colorScheme, .light)
-                        Text("녹음을 시작하기 전에 입력 장치를 선택하세요.")
+                        Text("녹음을 시작하기 전에 입력 장치를 선택해 주세요.")
                             .font(.system(size: 11))
                             .lineSpacing(3)
                             .foregroundStyle(AppTheme.muted)
@@ -285,7 +285,7 @@ struct ContentView: View {
                         .controlSize(.small)
                         .tint(violet)
                         .disabled(!model.canStart)
-                        Text("짧은 간격으로 발언을 표시합니다.\n설정은 다음 녹음부터 적용됩니다.")
+                        Text("짧은 간격으로 발언을 표시해요.\n설정은 다음 녹음부터 적용돼요.")
                             .font(.system(size: 11))
                             .lineSpacing(3)
                             .foregroundStyle(AppTheme.muted)
@@ -496,7 +496,7 @@ struct ContentView: View {
                     .background(AppTheme.lavender, in: Capsule())
             }
             .buttonStyle(.plain)
-            .help("NVIDIA, Qwen, Gemini 중 음성 인식 엔진을 선택합니다.")
+            .help("NVIDIA, Qwen, Gemini 중 음성 인식 엔진을 선택해요.")
             .accessibilityLabel("인식 엔진 설정")
             .accessibilityValue(model.recognitionProvider.title)
             .popover(isPresented: $showingCloudSettings, arrowEdge: .top) {
@@ -519,7 +519,7 @@ struct ContentView: View {
                 .background(AppTheme.lavender, in: Capsule())
             }
             .buttonStyle(.plain)
-            .help("AI CLI 선택, 모델·연결·문맥 교정을 설정합니다.")
+            .help("AI CLI 선택, 모델·연결·문맥 교정을 설정해요.")
             .accessibilityLabel("AI CLI 설정")
             .accessibilityValue(model.codexSettings.provider.title + " · " + model.codexSettings.mode.title)
             .padding(.top, 4)
@@ -547,7 +547,7 @@ struct ContentView: View {
             .buttonStyle(.plain)
             .disabled(model.speakerIDs.isEmpty)
             .opacity(model.speakerIDs.isEmpty ? 0.55 : 1)
-            .help(model.speakerIDs.isEmpty ? "화자가 감지되면 이름을 입력할 수 있습니다." : "현재 대화의 화자 이름 입력 또는 수정")
+            .help(model.speakerIDs.isEmpty ? "화자가 감지되면 이름을 입력할 수 있어요." : "현재 대화의 화자 이름 입력 또는 수정")
             .popover(isPresented: $showingSpeakerNames, arrowEdge: .top) {
                 SpeakerNamesEditor(model: model, preferredSpeaker: preferredSpeaker) {
                     showingSpeakerNames = false
@@ -564,7 +564,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 9) {
                     Label(model.isReprocessing ? "지난 회의 재가공본 · 원본 보관" : "전사 저장 완료 · 회의록", systemImage: "doc.on.doc")
                         .font(.system(size: 12, weight: .semibold))
-                    Text("발언과 화자를 편집하고, 회의자료를 더해 다시 정리할 수 있습니다.")
+                    Text("발언과 화자를 편집하고, 회의자료를 더해 다시 정리할 수 있어요.")
                         .font(.system(size: 11)).foregroundStyle(AppTheme.muted)
                     HStack(spacing: 10) {
                         Button(model.meeting.lastURL == nil ? "회의록 생성" : "회의록 다시 생성", action: model.generateMinutes)
@@ -635,7 +635,7 @@ struct ContentView: View {
                         } label: {
                             Label("자료 첨부", systemImage: "paperclip")
                         }
-                        .help("녹음을 이어가면서 이번 회의에 자료를 추가합니다.")
+                        .help("녹음을 이어가면서 이번 회의에 자료를 추가해요.")
                     }
                     Button {
                         model.copyTranscript()
@@ -691,9 +691,9 @@ struct ContentView: View {
                 }
                 Image(systemName: "sparkle")
                     .foregroundStyle(AppTheme.rose)
-                Text(model.usesQwen ? "녹음이 끝나면 Qwen 전사가 반영됩니다." :
-                     model.codexSettings.mode == .codex ? "초안에 AI 교정이 이어서 반영됩니다. 차이 보기에서 변경을 확인하세요." :
-                     (model.usesGemini ? "로컬 초안에 Gemini 전사가 이어서 반영됩니다." : "화자와 문장은 녹음 중 보정됩니다."))
+                Text(model.usesQwen ? "녹음이 끝나면 Qwen 전사가 반영돼요." :
+                     model.codexSettings.mode == .codex ? "초안에 AI 교정이 이어서 반영돼요. 차이 보기에서 변경을 확인해 주세요." :
+                     (model.usesGemini ? "로컬 초안에 Gemini 전사가 이어서 반영돼요." : "화자와 문장은 녹음 중 보정돼요."))
                     .font(.system(size: 11))
                     .foregroundStyle(muted)
                 Spacer(minLength: 12)
@@ -917,10 +917,10 @@ struct ContentView: View {
     private var emptyDescription: String {
         switch model.phase {
         case .loading: return model.statusMessage
-        case .ready, .completed: return "바로 녹음하거나 새 회의를 준비할 수 있습니다.\n회의 제목과 자료는 녹음 중에도 추가할 수 있습니다."
-        case .recording: return model.processingFile ? "음성에서 발언과 화자를 정리하고 있습니다." : "말씀하시면 화자와 함께 내용이 표시됩니다."
-        case .paused: return "녹음 재개를 누르면 같은 회의에 이어서 기록합니다."
-        case .finishing: return "정리가 끝나면 대화 기록이 자동으로 저장됩니다."
+        case .ready, .completed: return "바로 녹음하거나 새 회의를 준비할 수 있어요.\n회의 제목과 자료는 녹음 중에도 추가할 수 있어요."
+        case .recording: return model.processingFile ? "음성에서 발언과 화자를 정리하고 있어요." : "말씀하시면 화자와 함께 내용이 표시돼요."
+        case .paused: return "녹음 재개를 누르면 같은 회의에 이어서 기록해요."
+        case .finishing: return "정리가 끝나면 대화 기록이 자동으로 저장돼요."
         case .failed: return "위 안내를 확인한 뒤 다시 준비해 주세요."
         }
     }
@@ -1067,7 +1067,7 @@ private struct TranscriptCard: View {
         .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(Color.black.opacity(0.035)))
         .confirmationDialog("이 발언을 삭제할까요?", isPresented: $confirmingDelete) {
             Button("발언 삭제", role: .destructive) { onDeleteText?() }
-        } message: { Text("삭제 후 전사 편집 되돌리기로 복원할 수 있습니다.") }
+        } message: { Text("삭제 후 전사 편집 되돌리기로 복원할 수 있어요.") }
         .onChange(of: originalText) { _, value in if value == nil { showingOriginal = false } }
     }
 
@@ -1161,8 +1161,8 @@ private struct SpeakerNamesEditor: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(AppTheme.ink)
                 Text(model.voice.vault.continuousLearningEnabled
-                     ? "등록된 목소리의 이름을 직접 입력해 확인하면 해당 화자의 음성으로 누적 학습합니다. 새 목소리는 ‘목소리 학습’에서 등록하세요."
-                     : "이름은 현재 대화에 적용됩니다. 목소리 학습 화면에서 추가 학습할 수 있습니다.")
+                     ? "등록된 목소리의 이름을 직접 입력해 확인하면 이 화자의 음성으로 누적 학습해요. 새 목소리는 ‘목소리 학습’에서 등록해 주세요."
+                     : "이름은 현재 대화에 적용돼요. 목소리 학습 화면에서 추가 학습할 수 있어요.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -1213,8 +1213,8 @@ private struct SpeakerNamesEditor: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("빈 이름을 적용하면 ‘화자 N’으로 표시됩니다.")
-                Text("이름은 64자까지 저장됩니다.")
+                Text("빈 이름을 적용하면 ‘화자 N’으로 표시돼요.")
+                Text("이름은 64자까지 저장돼요.")
             }
             .font(.system(size: 11))
             .foregroundStyle(.secondary)
@@ -1352,12 +1352,12 @@ private struct LectureDashboard: View {
                 }
                 if let error=assistant.error { Text(error).foregroundStyle(.orange).font(.caption) }
                 GroupBox("현재 주제") {
-                    Text(assistant.state.currentAgenda.isEmpty ? "강의 내용이 쌓이면 현재 주제를 표시합니다." : assistant.state.currentAgenda)
+                    Text(assistant.state.currentAgenda.isEmpty ? "강의 내용이 쌓이면 현재 주제를 표시해요." : assistant.state.currentAgenda)
                         .frame(maxWidth:.infinity,alignment:.leading).padding(8)
                 }
                 GroupBox("지금까지의 강의 요약") {
                     VStack(alignment:.leading,spacing:10) {
-                        if assistant.state.summary.isEmpty { Text("요약을 준비하고 있습니다.").foregroundStyle(.secondary) }
+                        if assistant.state.summary.isEmpty { Text("요약을 준비하고 있어요.").foregroundStyle(.secondary) }
                         ForEach(assistant.state.summary) { item in
                             Text("• " + item.text + (item.stale ? " · 근거 확인 필요" : ""))
                         }
@@ -1366,7 +1366,7 @@ private struct LectureDashboard: View {
                 GroupBox("생각해 볼 질문") {
                     VStack(alignment:.leading,spacing:10) {
                         let questions=assistant.state.suggestions.filter { $0.kind == "question" && ($0.status == .active || $0.status == .review) }
-                        if questions.isEmpty && assistant.state.openQuestions.isEmpty { Text("강의 맥락을 분석한 뒤 질문을 표시합니다.").foregroundStyle(.secondary) }
+                        if questions.isEmpty && assistant.state.openQuestions.isEmpty { Text("강의 맥락을 분석한 뒤 질문을 표시해요.").foregroundStyle(.secondary) }
                         ForEach(questions) { item in Text("• " + item.title + (item.stale ? " · 근거 확인 필요" : "")) }
                         ForEach(assistant.state.openQuestions) { item in Text("• " + item.text + (item.stale ? " · 근거 확인 필요" : "")) }
                     }.frame(maxWidth:.infinity,alignment:.leading).padding(8)

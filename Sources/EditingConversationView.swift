@@ -11,7 +11,7 @@ struct EditingConversationView: View {
                     Text("말하듯 요청하면, 기록을 다듬어요.").assistantFont(14, weight: .semibold)
                     Text("“전사록 및 회의록 교정: 코코전자 → 쿠쿠전자”\n“예산을 설명한 발언을 화자 2로 바꿔 줘”\n“회의록을 결정 사항 중심으로 정리해 줘”\n“이 내용을 ‘회의 배경’ 자료로 추가해 줘”")
                         .assistantFont(11).lineSpacing(6).foregroundStyle(AppTheme.muted)
-                    Text("수정안을 확인하고 적용하면 기록에 반영됩니다.")
+                    Text("수정안을 확인하고 적용하면 기록에 반영돼요.")
                         .assistantFont(10).foregroundStyle(AppTheme.muted)
                 }.padding(.vertical, 10)
             }
@@ -63,7 +63,7 @@ struct EditingConversationView: View {
                     Label("적용 완료", systemImage: "checkmark.circle.fill").assistantFont(11).foregroundStyle(AppTheme.violet)
                     if chat.canUndo(entry.id) { Button("되돌리기") { chat.undo(entry.id) }.controlSize(.regular) }
                 } else if entry.status == "undone" { Text("되돌림 완료").assistantFont(11).foregroundStyle(AppTheme.muted) }
-                else if entry.status == "expired" { Text("현재 내용을 기준으로 다시 요청할 수 있습니다.").assistantFont(10).foregroundStyle(AppTheme.muted) }
+                else if entry.status == "expired" { Text("현재 내용을 기준으로 다시 요청할 수 있어요.").assistantFont(10).foregroundStyle(AppTheme.muted) }
                 if let url=entry.outputURL, entry.status == "applied" {
                     Button { NSWorkspace.shared.open(url) } label: { Image(systemName:"doc.text") }
                         .help("편집본 열기").accessibilityLabel("편집본 열기")

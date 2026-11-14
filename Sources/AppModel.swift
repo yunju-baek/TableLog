@@ -43,7 +43,7 @@ import UniformTypeIdentifiers
     @Published private var voiceNameAssignments = VoiceNameAssignments()
     private var reconcilingVoiceNames = false
     @Published var phase: AppPhase = .loading
-    @Published var statusMessage = "한국어 음성 모델을 준비하고 있습니다."
+    @Published var statusMessage = "한국어 음성 모델을 준비하고 있어요."
     @Published var errorMessage: String?
     @Published var segments: [TranscriptSegment] = [] { didSet { cachedEditedTexts=nil; cachedManualProjection=nil } }
     @Published var liveText = ""
@@ -55,7 +55,7 @@ import UniformTypeIdentifiers
     @Published private(set) var engineSettings = EngineTuningSettings()
     @Published var speakerReviewProvider: SpeakerReviewProvider = .codex
     @Published private(set) var speakerReviewRecords: [SpeakerReviewRecord] = []
-    @Published private(set) var speakerReviewStatus = "녹음·본문 교정 완료 후 검토할 수 있습니다."
+    @Published private(set) var speakerReviewStatus = "녹음·본문 교정 완료 후 검토할 수 있어요."
     @Published private(set) var speakerReviewRunning = false
     @Published private(set) var playingReviewAudio = false
     @Published private(set) var speakerOverrides: [Int: SpeakerOverride] = [:]
@@ -291,18 +291,28 @@ import UniformTypeIdentifiers
     }
 
     func reloadEngine() {
+        prepareEngine()
+    }
+
+    func prepareEngine(progress: ((String) -> Void)? = nil,
+                       completion: ((Result<Void, Error>) -> Void)? = nil) {
         guard !canStop && phase != .finishing else { return }
         phase = .loading; errorMessage = nil
-        statusMessage = "한국어 음성 모델을 준비하고 있습니다."
-        worker.load(lowLatency: lowLatency, tuning: engineSettings) { [weak self] result in
+        statusMessage = "한국어 음성 모델을 준비하고 있어요."
+        worker.load(lowLatency: lowLatency, tuning: engineSettings, progress: { [weak self] message in
+            guard let self, !self.closing, self.phase == .loading else { return }
+            self.statusMessage = message
+            progress?(message)
+        }) { [weak self] result in
             guard let self, !self.closing else { return }
             switch result {
             case .success:
                 self.phase = .ready
-                self.statusMessage = "바로 녹음하거나 새 회의를 준비할 수 있습니다."
+                self.statusMessage = "바로 녹음하거나 새 회의를 준비할 수 있어요."
                 self.runRequestedTest()
             case .failure(let error): self.fail(error)
             }
+            completion?(result)
         }
     }
 
@@ -312,7 +322,7 @@ import UniformTypeIdentifiers
         switch MicrophoneCapture.authorizationStatus {
         case .authorized: beginMicrophone()
         case .notDetermined:
-            phase = .loading; statusMessage = "마이크 사용 권한을 확인하고 있습니다."
+            phase = .loading; statusMessage = "마이크 사용 권한을 확인하고 있어요."
             MicrophoneCapture.requestAccess { [weak self] granted in
                 guard let self else { return }
                 if granted { self.beginMicrophone() }
@@ -352,7 +362,7 @@ import UniformTypeIdentifiers
         corrections = [:]; correctionAttempts = [:]; observations = [:]
         codexRecords = []; codexRetryCount = 0
         speakerReviewRecords = []; speakerOverrides = [:]
-        speakerReviewStatus = "녹음·본문 교정 완료 후 검토할 수 있습니다."
+        speakerReviewStatus = "녹음·본문 교정 완료 후 검토할 수 있어요."
         correctionInputFinal = false; correctionFailure = nil; correctionInterrupted = false
         correctionResumeAfter = .distantPast
         appliedASRTerms = referenceTerms
@@ -391,7 +401,7 @@ import UniformTypeIdentifiers
         }
         guard beginSessionAudio() else { return }
         meetingPrepared=false
-        processingFile = false; phase = .loading; statusMessage = "마이크를 연결하고 있습니다."
+        processingFile = false; phase = .loading; statusMessage = "마이크를 연결하고 있어요."
         let id = session
         worker.begin(id, lowLatency: lowLatency, phrases: appliedASRTerms, tuning: sessionEngineSettings) { [weak self] result in
             guard let self, !self.closing, self.session == id else { return }
@@ -418,7 +428,7 @@ import UniformTypeIdentifiers
                 })
                 if !accepted {
                     DispatchQueue.main.async {
-                        self?.stopAfterFailure(AppFailure(message: "음성 처리 대기가 8초를 초과했습니다. 현재까지의 발언을 저장합니다. 다른 작업을 줄이거나 빠른 응답 설정을 꺼 주세요."))
+                        self?.stopAfterFailure(AppFailure(message: "음성 처리 대기가 8초를 초과했어요. 현재까지의 발언을 저장해요. 다른 작업을 줄이거나 빠른 응답 설정을 꺼 주세요."))
                     }
                 }
             }, onLevel: { [weak self] level in
@@ -427,20 +437,20 @@ import UniformTypeIdentifiers
                 DispatchQueue.main.async { if self?.session == id { self?.stopAfterFailure(error) } }
             })
         phase = .recording
-        statusMessage = "듣고 있습니다 · 발언과 화자를 실시간으로 정리합니다."
+        statusMessage = "듣고 있어요 · 발언과 화자를 실시간으로 정리해요."
     }
 
     func pauseRecording() {
         guard canPause, phase == .recording else { return }
         phase = .paused; pauseTransition = true; inputLevel = 0
-        statusMessage = "일시정지 중 · 마지막 음성을 정리합니다."
+        statusMessage = "일시정지 중 · 마지막 음성을 정리해요."
         let id = session
         microphone.stop { [weak self] in
             guard let self, self.session == id else { return }
             self.pauseTransition = false
             guard self.phase == .paused else { return }
             self.inputLevel = 0
-            self.statusMessage = "녹음 일시정지 · 재개하면 같은 회의에 이어서 기록합니다."
+            self.statusMessage = "녹음 일시정지 · 재개하면 같은 회의에 이어서 기록해요."
             self.persistCurrentTranscript()
         }
     }
@@ -505,7 +515,7 @@ import UniformTypeIdentifiers
     func stop() {
         guard canStop else { return }
         if !processingFile { endedAt = Date() }
-        phase = .finishing; statusMessage = "마지막 발언과 화자를 정리하고 저장합니다."
+        phase = .finishing; statusMessage = "마지막 발언과 화자를 정리하고 저장해요."
         if processingFile { worker.cancelFile(); return }
         let id = session
         microphone.stop { [weak self] in
@@ -606,7 +616,7 @@ import UniformTypeIdentifiers
         processingFile = false; fileProgress = nil
         if sessionProvider == .gemini, cloudTask != nil, cloudFailure == nil, !closing {
             phase = .finishing
-            statusMessage = "마지막 Gemini 전사 결과를 받아 저장합니다."
+            statusMessage = "마지막 Gemini 전사 결과를 받아 저장해요."
             persistCurrentTranscript()
             return
         }
@@ -620,7 +630,7 @@ import UniformTypeIdentifiers
 
     private func finishWithQwen(audio: URL, snapshot: EngineSnapshot) {
         phase = .finishing
-        statusMessage = "Qwen으로 녹음 본문을 다시 전사하고 있습니다."
+        statusMessage = "Qwen으로 녹음 본문을 다시 전사하고 있어요."
         persistCurrentTranscript()
         let id = session
         do {
@@ -629,7 +639,7 @@ import UniformTypeIdentifiers
                 self.qwenProcess = nil
                 do {
                     guard self.transcriptEdits.isEmpty, self.manualTranscriptEdits.isEmpty else {
-                        throw AppFailure(message: "직접 수정한 내용과 함께 NVIDIA 초안을 저장합니다.")
+                        throw AppFailure(message: "직접 수정한 내용과 함께 NVIDIA 초안을 저장해요.")
                     }
                     try self.applyQwen(result.get(), to: snapshot)
                 } catch { self.recordQwenError(error.localizedDescription) }
@@ -680,7 +690,7 @@ import UniformTypeIdentifiers
         }
         let projection = HybridTranscript.project(local: snapshot, chunks: usable)
         guard !projection.cloudIDs.isEmpty || (snapshot.words.isEmpty && fallback.isEmpty) else {
-            throw AppFailure(message: "Qwen 발언과 시각을 확인할 수 있어야 결과를 적용할 수 있습니다.")
+            throw AppFailure(message: "Qwen 발언과 시각을 확인할 수 있어야 결과를 적용할 수 있어요.")
         }
         qwenFallbackChunks = fallback
         qwenCompletedChunks = usable.count
@@ -696,7 +706,7 @@ import UniformTypeIdentifiers
         guard let process = qwenProcess else { return }
         qwenProcess = nil
         if process.isRunning { process.terminate() }
-        recordQwenError("Qwen 전사를 중지했습니다.")
+        recordQwenError("Qwen 전사를 중지했어요.")
         if !closing { finalizeSession() }
     }
 
@@ -708,18 +718,18 @@ import UniformTypeIdentifiers
             lastSavedURL = try SessionFiles.write(document(status: finalStatus), to: sessionDocumentURL)
             if let pendingFailure {
                 phase = .failed; errorMessage = pendingFailure
-                statusMessage = "현재까지의 발언을 저장했습니다."
+                statusMessage = "현재까지의 발언을 저장했어요."
             } else {
                 phase = .completed
                 if let qwenError {
-                    statusMessage = "NVIDIA 초안을 저장했습니다. " + qwenError
+                    statusMessage = "NVIDIA 초안을 저장했어요. " + qwenError
                 } else if sessionProvider == .qwen, qwenCompletedChunks > 0 {
-                    statusMessage = qwenFallbackChunks.isEmpty ? "Qwen 전사와 화자 정보를 저장했습니다." :
-                        "Qwen 전사와 NVIDIA 초안 \(qwenFallbackChunks.count)개 구간을 저장했습니다."
+                    statusMessage = qwenFallbackChunks.isEmpty ? "Qwen 전사와 화자 정보를 저장했어요." :
+                        "Qwen 전사와 NVIDIA 초안 \(qwenFallbackChunks.count)개 구간을 저장했어요."
                 } else {
-                    statusMessage = cloudFailure != nil ? "로컬 전사로 보완해 저장했습니다 · Gemini 연결 상태를 확인해 주세요." :
-                    (!cloudSkippedChunks.isEmpty ? "Gemini 전사와 로컬로 보존한 \(cloudSkippedChunks.count)개 구간을 함께 저장했습니다." :
-                    (stoppedByUser ? "중지한 지점까지 저장했습니다." : "전사가 완료되었습니다 · JSON 자동 저장 완료"))
+                    statusMessage = cloudFailure != nil ? "로컬 전사로 보완해 저장했어요 · Gemini 연결 상태를 확인해 주세요." :
+                    (!cloudSkippedChunks.isEmpty ? "Gemini 전사와 로컬로 보존한 \(cloudSkippedChunks.count)개 구간을 함께 저장했어요." :
+                    (stoppedByUser ? "중지한 지점까지 저장했어요." : "전사가 완료됐어요 · JSON 자동 저장 완료"))
                 }
             }
             finishTestWhenCorrectionsSettle()
@@ -788,7 +798,7 @@ import UniformTypeIdentifiers
             diarization: isReprocessing ? "saved-speaker-assignments" : "NVIDIA Nemotron-3-Diarization / local Metal",
             status: isReprocessing ? "restored" : recognitionDocumentStatus,
             error: sessionProvider == .qwen ? qwenError :
-                cloudFailure ?? (cloudSkippedChunks.isEmpty ? nil : "\(cloudSkippedChunks.count)개 구간은 응답 검증 기록과 함께 로컬 결과로 보존했습니다."),
+                cloudFailure ?? (cloudSkippedChunks.isEmpty ? nil : "\(cloudSkippedChunks.count)개 구간은 응답 검증 기록과 함께 로컬 결과로 보존했어요."),
             completed_chunks: sessionProvider == .qwen ? qwenCompletedChunks : cloudResults.count,
             request_seconds: cloudResults.map { $0.transcript.elapsedSeconds },
             local_fallback_chunks: sessionProvider == .qwen ? qwenFallbackChunks : cloudSkippedChunks)
@@ -839,7 +849,7 @@ import UniformTypeIdentifiers
                 self.activeFilePanel = nil
                 guard response == .OK, let url = panel.url, !self.closing else { return }
                 guard self.canExport, self.session == exportSession else {
-                    self.errorMessage = "저장할 대화가 변경되었습니다. 현재 대화에서 JSON 저장을 다시 선택해 주세요."
+                    self.errorMessage = "저장할 대화가 바뀌었어요. 현재 대화에서 JSON 저장을 다시 선택해 주세요."
                     return
                 }
                 do {
@@ -1094,7 +1104,7 @@ import UniformTypeIdentifiers
     private func startCloud() {
         cloudBuffer.begin(session: session)
         let id = session
-        cloudStatus = "Gemini 문맥 전사 · 약 \(Int(CloudAudioBuffer.targetSeconds))초 구간을 모으고 있습니다"
+        cloudStatus = "Gemini 문맥 전사 · 약 \(Int(CloudAudioBuffer.targetSeconds))초 구간을 모으고 있어요"
         cloudTask = Task { [weak self, cloudClient] in
             while !Task.isCancelled {
                 guard let self, self.session == id, !self.closing else { return }
@@ -1142,7 +1152,7 @@ import UniformTypeIdentifiers
                             self.cloudSkippedChunks.append(chunk.id)
                             self.cloudInFlightSeconds = 0
                             let range = "\(Self.time(chunk.startTime))–\(Self.time(chunk.endTime))"
-                            self.errorMessage = "Gemini 응답 확인 · \(range) 구간은 로컬 결과로 보존합니다. 이후 구간의 Gemini 처리는 계속됩니다."
+                            self.errorMessage = "Gemini 응답 확인 · \(range) 구간은 로컬 결과로 보존해요. 이후 구간의 Gemini 처리는 계속돼요."
                             self.cloudStatus = "Gemini 계속 인식 중" + self.cloudFallbackSummary
                             self.persistCurrentTranscript()
                             continue
@@ -1344,7 +1354,7 @@ extension AppModel {
     }
     func cancelCodexLogin() {
         codexLoginTask?.cancel(); codexLoginTask = nil; codexLoginRunning = false
-        codexAuthStatus = "로그인을 취소했습니다."
+        codexAuthStatus = "로그인을 취소했어요."
     }
     func updateCorrectionSettings(_ settings: CodexCorrectionSettings, topic: String, terms: String) {
         guard !closing else { return }
@@ -1517,7 +1527,7 @@ extension AppModel {
             record.status = "cancelled"; record.message = "검토 취소 · 기존 화자 유지"
             saveSpeakerReviewRecord(record)
         }
-        speakerReviewStatus = "검토를 취소했습니다. 완료한 구간의 기록은 보존됩니다."
+        speakerReviewStatus = "검토를 취소했어요. 완료한 구간의 기록은 보존돼요."
     }
     func startSpeakerReview() {
         guard canReviewSpeakers else { return }
@@ -1534,7 +1544,7 @@ extension AppModel {
             if changed { saveSpeakerReviewRecord(record) }
         }
         speakerReviewRun = run; speakerReviewRunning = true
-        speakerReviewStatus = "앞뒤 발언을 함께 검토합니다 · \(batches.count)개 구간"
+        speakerReviewStatus = "앞뒤 발언을 함께 검토해요 · \(batches.count)개 구간"
         speakerReviewTask = Task { [weak self] in
             guard let self else { return }
             defer {
@@ -1559,7 +1569,7 @@ extension AppModel {
                         self.segments.first(where: { $0.id == input.id }).map { self.speakerReviewFingerprint($0) == input.fingerprint } ?? false
                     }
                     record.status = current ? "completed" : "stale"
-                    record.message = current ? (response.changes.isEmpty ? "이 구간은 현재 화자 유지 권고" : "원음 확인 후 제안을 적용할 수 있습니다.") : "검토 중 본문·화자·이름이 변경되어 응답 보류"
+                    record.message = current ? (response.changes.isEmpty ? "이 구간은 현재 화자 유지 권고" : "원음 확인 후 제안을 적용할 수 있어요.") : "검토 중 본문·화자·이름이 변경되어 응답 보류"
                     if current {
                         record.suggestions = response.changes.compactMap { change in
                             guard let input = batch.inputs.first(where: { $0.id == change.segment_id }) else { return nil }
@@ -1571,7 +1581,7 @@ extension AppModel {
                 } catch {
                     guard !Task.isCancelled, self.session == sessionID, self.speakerReviewRun == run else { return }
                     record.elapsed_seconds = Date().timeIntervalSince(started); record.status = "failed"
-                    record.message = (error is CodexFailure || error is SpeakerReviewError) ? error.localizedDescription : "화자 검토를 완료하지 못했습니다. 기존 화자를 유지하며 다시 검토할 수 있습니다."
+                    record.message = (error is CodexFailure || error is SpeakerReviewError) ? error.localizedDescription : "화자 검토를 완료하지 못했어요. 기존 화자를 유지하며 다시 검토할 수 있어요."
                     self.saveSpeakerReviewRecord(record)
                     self.speakerReviewStatus = record.message ?? "검토 대기"; return
                 }
@@ -1604,7 +1614,7 @@ extension AppModel {
             record.suggestions[s].status = "accepted"
         } else { record.suggestions[s].status = "rejected" }
         saveSpeakerReviewRecord(record)
-        speakerReviewStatus = apply ? "확인한 화자를 적용했습니다. 최초 화자와 근거는 기록에 보존됩니다." : "기존 화자를 유지했습니다."
+        speakerReviewStatus = apply ? "확인한 화자를 적용했어요. 최초 화자와 근거는 기록에 보존돼요." : "기존 화자를 유지했어요."
     }
     func canRevertSpeakerSuggestion(_ proposal: SpeakerSuggestion) -> Bool {
         !isBusy && !speakerReviewRunning && speakerOverrides[proposal.input.id]?.proposal_id == proposal.id
@@ -1618,7 +1628,7 @@ extension AppModel {
         refreshVoiceCandidates()
         record.suggestions[s].status = "reverted"
         saveSpeakerReviewRecord(record)
-        speakerReviewStatus = "최초 음성 화자로 되돌렸습니다."
+        speakerReviewStatus = "최초 음성 화자로 되돌렸어요."
     }
     func playReviewAudio(start: Double, end: Double) {
         stopReviewAudio()
@@ -1628,13 +1638,13 @@ extension AppModel {
             let from = max(0, start - 1.5), to = min(player.duration, end + 1.5)
             guard from < to else { return }
             player.currentTime = from
-            guard player.play() else { speakerReviewStatus = "원음 재생을 시작할 수 없습니다."; return }
+            guard player.play() else { speakerReviewStatus = "원음 재생을 시작할 수 없어요."; return }
             reviewPlayer = player; playingReviewAudio = true
             reviewAudioStop = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64((to - from) * 1_000_000_000))
                 if !Task.isCancelled { self?.stopReviewAudio() }
             }
-        } catch { speakerReviewStatus = "원음 파일을 열 수 없습니다. M4A 저장 위치를 확인해 주세요." }
+        } catch { speakerReviewStatus = "원음 파일을 열 수 없어요. M4A 저장 위치를 확인해 주세요." }
     }
     func stopReviewAudio() {
         reviewAudioStop?.cancel(); reviewAudioStop = nil
@@ -1694,18 +1704,18 @@ extension AppModel {
             return .init(kind: .automatic, name: match.name, detail: voiceMatchDetail(match))
         }
         if let name = speakerNames[speaker] {
-            return .init(kind: .manual, name: name, detail: "직접 지정한 이름을 유지합니다.")
+            return .init(kind: .manual, name: name, detail: "직접 지정한 이름을 유지해요.")
         }
         if voice.mappingMode != .off, !voiceNameAssignments.userControlled.contains(speaker),
            !voice.rejectedSpeakers.contains(speaker), let match = voice.suggestions[speaker] {
             return .init(kind: .suggested, name: match.name, detail: voiceMatchDetail(match))
         }
         let detail: String
-        if voice.rejectedSpeakers.contains(speaker) { detail = "이 회의에서 후보를 제외했습니다. 다시 비교로 검토할 수 있습니다." }
-        else if voice.matchingSpeakers.contains(speaker) { detail = "학습한 목소리와 비교 중입니다." }
-        else if voice.mappingMode == .off { detail = "목소리 연결을 켜면 등록한 목소리와 비교합니다." }
-        else if voice.vault.profiles.isEmpty { detail = "목소리를 등록하면 이름을 연결할 수 있습니다." }
-        else { detail = "선명한 발언 구간을 모아 이름을 비교합니다." }
+        if voice.rejectedSpeakers.contains(speaker) { detail = "이 회의에서 후보를 제외했어요. 다시 비교로 검토할 수 있어요." }
+        else if voice.matchingSpeakers.contains(speaker) { detail = "학습한 목소리와 비교 중이에요." }
+        else if voice.mappingMode == .off { detail = "목소리 연결을 켜면 등록한 목소리와 비교해요." }
+        else if voice.vault.profiles.isEmpty { detail = "목소리를 등록하면 이름을 연결할 수 있어요." }
+        else { detail = "선명한 발언 구간을 모아 이름을 비교해요." }
         return .init(kind: .none, name: "화자 \(speaker)", detail: detail)
     }
 
@@ -1713,8 +1723,8 @@ extension AppModel {
         var detail = String(format: "유사도 %.2f · %d개 구간 · %.1f초", match.similarity, match.evidenceCount, match.evidenceSeconds)
         if !match.automaticEligible {
             detail += match.enrolledClipCount < 2 || match.enrolledSeconds < 6
-                ? " · 등록 목소리를 2개 구간·6초 이상 보강하면 자동 연결을 검토합니다."
-                : " · 후보를 확인하거나 다음 발언의 일치를 기다립니다."
+                ? " · 등록 목소리를 2개 구간·6초 이상 보강하면 자동 연결을 검토해요."
+                : " · 후보를 확인하거나 다음 발언의 일치를 기다려요."
         }
         return detail
     }
@@ -1878,8 +1888,8 @@ extension AppModel {
         correctionInputFinal=true;cloudInputFinal=true
         correctionStatus="저장된 전사 불러옴 · 문맥 다시 교정 가능"
         meetingPrepared=false;processingFile=false;fileProgress=nil;phase = .completed;finalStatus="reprocessed"
-        statusMessage=meeting.preview.isEmpty ? "재가공본 준비 · 발언·화자·자료를 편집한 뒤 회의록 다시 생성을 누르세요."
-            : "재가공본 준비 · 회의 도우미에서 전사록과 회의록을 편집할 수 있습니다."
+        statusMessage=meeting.preview.isEmpty ? "재가공본 준비 · 발언·화자·자료를 편집한 뒤 회의록 다시 생성을 눌러 주세요."
+            : "재가공본 준비 · 회의 도우미에서 전사록과 회의록을 편집할 수 있어요."
         localSnapshot=EngineSnapshot(revision:0,audioSeconds:audioSeconds,processedSeconds:audioSeconds,
             isFinal:true,text:segments.map(\.text).joined(separator:" "),words:[],segments:segments,speakerActivity:nil)
         refreshVoiceCandidates()
@@ -1939,7 +1949,7 @@ extension AppModel {
               resetSession(title: "새 회의", source: "microphone", prepareOnly: true) else { return false }
         materials.resumeFolderWatching(provider: meeting.provider, settings: codexSettings)
         meeting.purpose=""
-        statusMessage="회의 준비 · 제목과 자료는 녹음 중에도 추가할 수 있습니다."
+        statusMessage="회의 준비 · 제목과 자료는 녹음 중에도 추가할 수 있어요."
         syncMeetingMinutes(force:true)
         return true
     }
@@ -1979,10 +1989,10 @@ extension AppModel {
     @discardableResult
     func applyManualTranscriptEdits(request: TranscriptEditRequest,drafts: [Int:[ManualTranscriptDraft]], notify: Bool = true) -> Bool {
         guard !closing,request.sessionID==session,request.revision==manualEditRevision else {
-            errorMessage="회의 또는 편집 내용이 갱신되었습니다. 발언 편집창을 다시 열어 주세요."; return false
+            errorMessage="회의 또는 편집 내용이 갱신됐어요. 발언 편집창을 다시 열어 주세요."; return false
         }
         guard request.segments.allSatisfy({ ManualTranscriptDraft.valid(drafts[$0.id] ?? [], within:$0) }) else {
-            errorMessage="분리 시각과 화자를 확인해 주세요. 각 구간은 시간 순서로 이어져야 합니다."; return false
+            errorMessage="분리 시각과 화자를 확인해 주세요. 각 구간은 시간 순서로 이어져야 해요."; return false
         }
         let changes=request.segments.filter { segment in
             let parts=drafts[segment.id] ?? [], original=request.initialParts[segment.id] ?? []
@@ -2107,7 +2117,7 @@ extension AppModel {
         if speakerCount > 0 { applied.append("화자 이름 \(speakerCount)개") }
         if minutesReceipt != nil { applied.append("회의록") }
         if title != nil { applied.append("회의 제목") }
-        let note = applied.joined(separator: " · ") + " 변경을 저장했습니다."
+        let note = applied.joined(separator: " · ") + " 변경을 저장했어요."
         return EditingReceipt(note:note,url:minutesReceipt?.url) { [weak self] in
             try transcriptReceipt?.validateUndo()
             try minutesReceipt?.undo()
@@ -2164,7 +2174,7 @@ extension AppModel {
                   self.manualEditRevision==changedRevision, self.speakerNames==changedNames,
                   self.meeting.bindings==changedBindings, title == nil || self.sessionTitle==title else { throw EditingError.stale }
         }
-        return EditingReceipt(note:"발언·화자 \(pairs.count)개 변경을 적용했습니다.",validateUndo:validateUndo) { [weak self] in
+        return EditingReceipt(note:"발언·화자 \(pairs.count)개 변경을 적용했어요.",validateUndo:validateUndo) { [weak self] in
             try validateUndo()
             guard let self else { throw EditingError.stale }
             let currentText=self.transcriptEdits, currentManual=self.manualTranscriptEdits
