@@ -36,8 +36,11 @@ struct MeetingWorkRecord: Codable {
     var endedAt: Date? = nil
     var mode: RecordMode? = nil
     var lectureNotes: [LectureNote]? = nil
+    var location: String? = nil
+    var scheduledTime: String? = nil
     var input: MinutesGenerationInput {
-        MinutesGenerationInput(segments: segments, purpose: purpose, relatedTopics: template.similarTopics,
+        let context=[purpose,location.map { $0.isEmpty ? "" : "장소: " + $0 } ?? "",scheduledTime.map { $0.isEmpty ? "" : "예정 일시: " + $0 } ?? ""].filter { !$0.isEmpty }.joined(separator:"\n")
+        return MinutesGenerationInput(segments: segments, purpose: context, relatedTopics: template.similarTopics,
                                speakerNames: Dictionary(uniqueKeysWithValues: names.map { (String($0.key), $0.value) }), materials: materials, title: title, mode: mode)
     }
     func snapshot(facts: MeetingMinutesFacts) -> MeetingMinutesSnapshot {
@@ -48,7 +51,7 @@ struct MeetingWorkRecord: Codable {
             if !people.contains(where: { $0.name == name }) { people.append(person) }
         }
         return MeetingMinutesSnapshot(sessionID:id,revision:revision,date:date,purpose:purpose,
-            confirmedParticipants:people,speakerBindings:speakers,utterances:segments,facts:facts,title:title,endedAt:endedAt,lectureNotes: mode == .lecture ? (lectureNotes ?? []).map { "- [" + MeetingMinutesRenderer.time($0.seconds) + "] " + $0.text.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n") : "")
+            confirmedParticipants:people,speakerBindings:speakers,utterances:segments,facts:facts,title:title,endedAt:endedAt,lectureNotes: mode == .lecture ? (lectureNotes ?? []).map { "- [" + MeetingMinutesRenderer.time($0.seconds) + "] " + $0.text.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n") : "",location:location ?? "",scheduledTime:scheduledTime ?? "")
     }
 }
 
@@ -63,6 +66,8 @@ struct MeetingWorkRecord: Codable {
     @Published var templates: [MeetingTemplate] = []
     @Published var selectedID = defaultID { didSet { defaults.set(selectedID.uuidString,forKey:"minutes.template") } }
     @Published var purpose = ""
+    @Published var location = ""
+    @Published var scheduledTime = ""
     @Published var mode: RecordMode = .meeting
     @Published var lectureNotes: [LectureNote] = []
     @Published var provider: MinutesProvider = .codex { didSet { defaults.set(provider.rawValue,forKey:"minutes.provider") } }
@@ -155,6 +160,7 @@ struct MeetingWorkRecord: Codable {
         activeSessions.insert(id)
         sessionID=id;bindings=MeetingSpeakerBindings(sessionID:id)
         lectureNotes=[]
+        location="";scheduledTime=""
         for person in attendance { bindings.confirmAttendance(person) }
         generatedURL=nil;generatedPreview="";error=nil;status="회의록 작성 대기"
         let draft=editingDraftURL(id)
@@ -191,6 +197,7 @@ struct MeetingWorkRecord: Codable {
         record.editedOutput=nil
         record.ended=true;record.assistantAppendix="";record.updatedAt=Date()
         bindings=record.bindings;purpose=record.purpose;provider=record.provider;mode=record.mode ?? .meeting;lectureNotes=record.lectureNotes ?? []
+        location=record.location ?? "";scheduledTime=record.scheduledTime ?? ""
         templates.removeAll { $0.id==record.template.id };templates.append(record.template);selectedID=record.template.id
         materialContext=record.materials ?? MaterialContext();assistantAppendix=""
         records[record.id]=record;signatures.removeValue(forKey:record.id)
@@ -226,11 +233,11 @@ struct MeetingWorkRecord: Codable {
         if !force && now.timeIntervalSince(lastTick)<1 { return };lastTick=now
         let formatter=DateFormatter();formatter.dateFormat="yyyy-MM-dd HH:mm:ss zzz"
         let encoder=JSONEncoder();encoder.outputFormatting=[.sortedKeys]
-        struct Signature:Encodable { let date:Date;let title:String;let ended:Bool;let endedAt:Date?;let segments:[MeetingUtterance];let names:[Int:String];let bindings:MeetingSpeakerBindings;let template:MeetingTemplate;let purpose:String;let provider:MinutesProvider;let settings:CodexCorrectionSettings;let materials:MaterialContext;let assistantAppendix:String;let mode:RecordMode;let lectureNotes:[LectureNote] }
-        let signature=try? encoder.encode(Signature(date:date,title:title,ended:ended,endedAt:endedAt,segments:segments,names:names,bindings:bindings,template:selectedTemplate,purpose:purpose,provider:provider,settings:settings,materials:materialContext,assistantAppendix:assistantAppendix,mode:mode,lectureNotes:lectureNotes))
+        struct Signature:Encodable { let date:Date;let title:String;let ended:Bool;let endedAt:Date?;let segments:[MeetingUtterance];let names:[Int:String];let bindings:MeetingSpeakerBindings;let template:MeetingTemplate;let purpose:String;let provider:MinutesProvider;let settings:CodexCorrectionSettings;let materials:MaterialContext;let assistantAppendix:String;let mode:RecordMode;let lectureNotes:[LectureNote];let location:String;let scheduledTime:String }
+        let signature=try? encoder.encode(Signature(date:date,title:title,ended:ended,endedAt:endedAt,segments:segments,names:names,bindings:bindings,template:selectedTemplate,purpose:purpose,provider:provider,settings:settings,materials:materialContext,assistantAppendix:assistantAppendix,mode:mode,lectureNotes:lectureNotes,location:location,scheduledTime:scheduledTime))
         if signatures[id] != signature {
             let old=records[id]
-            records[id]=MeetingWorkRecord(id:id,revision:(old?.revision ?? 0)+1,savedRevision:old?.savedRevision ?? -1,date:formatter.string(from:date),title:title,purpose:purpose,template:selectedTemplate,bindings:bindings,names:names,segments:segments,ended:ended,provider:provider,settings:settings,output:old?.output,error:nil,updatedAt:now,materials:materialContext,assistantAppendix:assistantAppendix,editedOutput:old?.editedOutput,endedAt:endedAt,mode:mode,lectureNotes:lectureNotes)
+            records[id]=MeetingWorkRecord(id:id,revision:(old?.revision ?? 0)+1,savedRevision:old?.savedRevision ?? -1,date:formatter.string(from:date),title:title,purpose:purpose,template:selectedTemplate,bindings:bindings,names:names,segments:segments,ended:ended,provider:provider,settings:settings,output:old?.output,error:nil,updatedAt:now,materials:materialContext,assistantAppendix:assistantAppendix,editedOutput:old?.editedOutput,endedAt:endedAt,mode:mode,lectureNotes:lectureNotes,location:location,scheduledTime:scheduledTime)
             signatures[id]=signature
             persist(id)
             if old == nil { lastAttempt[id]=now }
@@ -255,7 +262,7 @@ struct MeetingWorkRecord: Codable {
         guard let id=sessionID,var record=records[id] else { return }
         let encoder=JSONEncoder();encoder.outputFormatting=[.sortedKeys]
         let before=try? encoder.encode(record)
-        record.template=selectedTemplate;record.bindings=bindings;record.purpose=purpose;record.provider=provider;record.settings=settings;record.materials=materialContext;record.assistantAppendix=assistantAppendix;record.mode=mode;record.lectureNotes=lectureNotes
+        record.template=selectedTemplate;record.bindings=bindings;record.purpose=purpose;record.provider=provider;record.settings=settings;record.materials=materialContext;record.assistantAppendix=assistantAppendix;record.mode=mode;record.lectureNotes=lectureNotes;record.location=location;record.scheduledTime=scheduledTime
         if before != (try? encoder.encode(record)) {
             record.revision += 1;record.updatedAt=Date();record.error=nil;records[id]=record;persist(id)
         }
@@ -285,19 +292,33 @@ struct MeetingWorkRecord: Codable {
         NSWorkspace.shared.open(directory)
     }
     private func persist(_ id:UUID) {
-        guard let record=records[id] else { return }
         do {
-            let folder=directory.appendingPathComponent("Sessions")
-            try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
-            let encoder=JSONEncoder();encoder.outputFormatting=[.prettyPrinted,.sortedKeys]
-            try encoder.encode(record).write(to:folder.appendingPathComponent(id.uuidString+".json"),options:.atomic)
+            try persistRecord(id)
         } catch { self.error="회의록 복구 자료 저장 실패 · " + error.localizedDescription }
+    }
+    private func persistRecord(_ id:UUID) throws {
+        guard let record=records[id] else { throw EditingError.unavailable }
+        let folder=directory.appendingPathComponent("Sessions")
+        try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
+        let encoder=JSONEncoder();encoder.outputFormatting=[.prettyPrinted,.sortedKeys]
+        try encoder.encode(record).write(to:folder.appendingPathComponent(id.uuidString+".json"),options:.atomic)
+    }
+    func saveMetadata() throws {
+        guard let id=sessionID else { throw EditingError.unavailable }
+        try persistRecord(id)
     }
     private func reportProgress(id:UUID,part:Int,total:Int,provider:MinutesProvider) {
         if sessionID==id { status="안건별 회의록 작성 · \(part)/\(total) · \(provider.title)" }
     }
     private func enqueue(_ id:UUID,force:Bool=false) {
+        guard !closing else { return }
         guard activeSessions.contains(id),force || !manualOnlySessions.contains(id),let record=records[id],!record.segments.isEmpty,force || record.revision>record.savedRevision else { return }
+        if AIUsageStatus.shared.isPaused(record.settings.provider) {
+            let message=CodexFailure(kind:.quota).localizedDescription
+            if records[id]?.error != message { records[id]?.error=message;persist(id) }
+            if sessionID==id && error != message { error=message;status="AI 사용 한도 · 전사와 직전 회의록 보관 중" }
+            return
+        }
         guard record.provider.isAvailable else {
             if sessionID == id { status="전사문 보관 중 · 회의록 설정에서 AI CLI 사용을 선택해 주세요." }
             return
@@ -323,7 +344,7 @@ struct MeetingWorkRecord: Codable {
                     try Task.checkCancellation()
                     if record.revision < self.minimumEditRevision[id,default:-1] {
                         self.runningID=nil
-                        if self.shouldAutomaticallyGenerate(record) { self.queue.append(id) }
+                        if !self.closing && self.shouldAutomaticallyGenerate(record) { self.queue.append(id) }
                         continue
                     }
                     var template = record.template
@@ -334,7 +355,7 @@ struct MeetingWorkRecord: Codable {
                     let url=try await self.store.save(record.snapshot(facts:facts),template:template)
                     if record.revision < self.minimumEditRevision[id,default:-1] {
                         self.runningID=nil
-                        if self.shouldAutomaticallyGenerate(record) { self.queue.append(id) }
+                        if !self.closing && self.shouldAutomaticallyGenerate(record) { self.queue.append(id) }
                         continue
                     }
                     self.records[id]?.savedRevision=record.revision;self.records[id]?.output=url.path;self.records[id]?.error=nil
@@ -346,26 +367,34 @@ struct MeetingWorkRecord: Codable {
                 } catch {
                     if record.revision < self.minimumEditRevision[id,default:-1] {
                         self.runningID=nil
-                        if self.shouldAutomaticallyGenerate(record) { self.queue.append(id) }
+                        if !self.closing && self.shouldAutomaticallyGenerate(record) { self.queue.append(id) }
                         continue
                     }
                     self.records[id]?.error=error.localizedDescription;self.persist(id)
                     if self.sessionID==id { self.error="회의록 갱신 대기 · " + error.localizedDescription;self.status="전사문과 직전 회의록 보존 · 다시 생성 가능" }
                 }
                 self.runningID=nil
-                if self.closing,let latest=self.records[id],latest.revision>record.revision,self.shouldAutomaticallyGenerate(latest) { self.queue.append(id) }
             }
             self.task=nil;self.busy=false
             if let next=self.queue.first { self.enqueue(next,force:true) }
         }
     }
+    func beginShutdown() {
+        closing=true;queue.removeAll();task?.cancel()
+    }
     func finish() async {
-        closing=true
+        beginShutdown()
         await transcriptSaveTask?.value
-        if generateOnFinish {
-            for id in activeSessions where records[id] != nil && !manualOnlySessions.contains(id) { records[id]?.ended=true;persist(id);enqueue(id) }
+        for id in activeSessions where records[id] != nil {
+            records[id]?.ended=true;persist(id)
         }
-        while let current=task { await current.value }
+        busy=false
+    }
+    func resumeAfterAIConnectionTest() {
+        for id in activeSessions where records[id]?.error == CodexFailure(kind:.quota).localizedDescription {
+            records[id]?.error=nil;persist(id)
+        }
+        tick()
     }
 }
 
@@ -385,8 +414,12 @@ extension MeetingWorkspace {
         editedPreview=text;editedURL=url;editedRevision=UUID()
         let revision=editedRevision
         status="채팅 편집본 저장 완료 · 자동 생성본은 별도로 보관해요."
-        return EditingReceipt(note:"회의록 편집본을 저장했어요. 회의록 화면과 파일에서 확인할 수 있어요.",url:url) { [weak self] in
+        let validateUndo: @MainActor () throws -> Void = { [weak self] in
             guard let self, self.sessionID==id, self.editedRevision==revision else { throw EditingError.stale }
+        }
+        return EditingReceipt(note:"회의록 편집본을 저장했어요. 회의록 화면과 파일에서 확인할 수 있어요.",url:url,validateUndo:validateUndo) { [weak self] in
+            try validateUndo()
+            guard let self else { throw EditingError.stale }
             if let previous { try Data(previous.utf8).write(to:url,options:.atomic) }
             else { try FileManager.default.removeItem(at:url) }
             self.records[id]?.editedOutput=previousOutput;self.persist(id)

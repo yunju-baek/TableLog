@@ -106,6 +106,8 @@ public struct MeetingMinutesSnapshot {
     public let date: String
     public let endedAt: Date?
     public let purpose: String
+    public let location: String
+    public let scheduledTime: String
     public let confirmedParticipants: [MeetingPerson]
     public let speakerBindings: [Int: MeetingPerson]
     public let utterances: [MeetingUtterance]
@@ -114,10 +116,11 @@ public struct MeetingMinutesSnapshot {
     public let facts: MeetingMinutesFacts
     public init(sessionID: UUID, revision: Int, date: String, purpose: String,
                 confirmedParticipants: [MeetingPerson], speakerBindings: [Int: MeetingPerson],
-                utterances: [MeetingUtterance], facts: MeetingMinutesFacts, referenceAppendix: String = "", title: String = "", endedAt: Date? = nil, lectureNotes: String = "") {
+                utterances: [MeetingUtterance], facts: MeetingMinutesFacts, referenceAppendix: String = "", title: String = "", endedAt: Date? = nil, lectureNotes: String = "", location: String = "", scheduledTime: String = "") {
         self.sessionID = sessionID; self.revision = revision; self.date = date; self.purpose = purpose
         self.confirmedParticipants = confirmedParticipants; self.speakerBindings = speakerBindings
         self.title = title; self.endedAt = endedAt
+        self.location=location;self.scheduledTime=scheduledTime
         self.referenceAppendix=referenceAppendix; self.lectureNotes=lectureNotes
         self.utterances = utterances; self.facts = facts
     }
@@ -163,7 +166,7 @@ public enum MeetingMinutesRenderer {
             legacyDuration: segments.map(\.end).max() ?? 0)
         var seen = Set<String>()
         let people = snapshot.confirmedParticipants.map(\.name).filter { !$0.isEmpty && seen.insert($0).inserted }.joined(separator: ", ")
-        let overview = [("일시", date), ("참석자", people), ("목적", snapshot.purpose)]
+        let overview = [("일시", date), ("예정 일시", snapshot.scheduledTime), ("장소", snapshot.location), ("참석자", people), ("목적", snapshot.purpose)]
             .filter { !$0.1.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .map { "- " + $0.0 + ": " + cell($0.1) }.joined(separator: "\n")
         let fields: [String: String] = [

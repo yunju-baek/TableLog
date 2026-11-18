@@ -5,10 +5,12 @@ import AppKit
 struct MeetingAssistantView: View {
     @ObservedObject var assistant: MeetingAssistant
     @ObservedObject var chat: MeetingEditingChat
+    @ObservedObject private var usage=AIUsageStatus.shared
     var provider: AITextProvider = .codex
     var onConnectAI: (() -> Void)? = nil
     @AppStorage("assistant.fontStep") private var fontStep = 1
     @State private var question = ""
+    @State private var inputHeight:CGFloat=54
     @State private var showSummary = true
     @State private var sheet: AssistantPanelSheet?
     @State private var showEarlierQuestions = false
@@ -30,6 +32,13 @@ struct MeetingAssistantView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+            if usage.isPaused(provider) {
+                VStack(alignment:.leading,spacing:6) {
+                    Label("\(provider.title) 사용 한도 · AI 일시 중지",systemImage:"pause.circle.fill").assistantFont(12,weight:.semibold)
+                    Text("녹음·로컬 전사·저장은 계속 사용할 수 있어요. 한도가 회복되면 연결을 확인해 재개하거나 다른 AI를 선택해 주세요.").assistantFont(11)
+                    if let onConnectAI { Button("AI 연결·재개 설정",action:onConnectAI).assistantFont(11) }
+                }.padding(12).frame(maxWidth:.infinity,alignment:.leading).background(AppTheme.lavender)
+            }
             Divider().overlay(AppTheme.violet.opacity(0.12))
             ScrollViewReader { proxy in
               ScrollView {
@@ -209,11 +218,26 @@ struct MeetingAssistantView: View {
 
     private var questionComposer: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField("내용을 고치거나 질문해 주세요", text: $question, axis: .vertical)
-                .textFieldStyle(.roundedBorder).lineLimit(2...6)
-                .assistantFont(13).accessibilityLabel("회의 편집 요청")
+            ChatInputField(text:$question,height:$inputHeight,fontSize:CGFloat(13+AssistantTextSize.clamped(fontStep)*2),onSubmit:sendQuestion)
+                .frame(height:inputHeight)
+                .overlay(alignment:.topLeading) {
+                    if question.isEmpty {
+                        Text("내용을 고치거나 질문해 주세요").assistantFont(13).foregroundStyle(AppTheme.muted)
+                            .padding(.horizontal,10).padding(.top,6).allowsHitTesting(false).accessibilityHidden(true)
+                    }
+                }
+                .background(.white,in:RoundedRectangle(cornerRadius:6))
+                .overlay(RoundedRectangle(cornerRadius:6).stroke(AppTheme.muted.opacity(0.3)))
             HStack(alignment: .center) {
-                Text("녹취 · 화자 · 회의록 · 자료").assistantFont(10).foregroundStyle(AppTheme.muted)
+                Menu("가능한 요청") {
+                    Group {
+                        Button("회의 제목·목적·장소·예정 일시") { question="회의 제목을 …로 바꿔 줘" }
+                        Button("전사·화자·회의록 수정") { question="이 발언의 화자를 …로 바꿔 줘" }
+                        Button("회의자료 추가·수정") { question="이 내용을 ‘회의 배경’ 자료로 추가해 줘: " }
+                        Button("교정 용어 추가") { question="교정 용어에 …를 추가해 줘" }
+                    }.disabled(!question.isEmpty)
+                    Button("전체 도움말") { chat.send("도움말") }.disabled(chat.busy)
+                }.assistantFont(10).menuStyle(.borderlessButton).fixedSize()
                 Spacer(minLength: 6)
                 if chat.busy {
                     Button { chat.cancel() } label: { Image(systemName: "stop.fill") }
@@ -222,10 +246,11 @@ struct MeetingAssistantView: View {
                     Button(action: sendQuestion) { Image(systemName: "arrow.up") }
                         .buttonStyle(.borderedProminent).controlSize(.regular)
                         .keyboardShortcut(.return, modifiers: .command)
-                        .help("요청 보내기 · ⌘↩").accessibilityLabel("편집 요청 보내기")
+                        .help("Enter로 전송 · Shift+Enter로 줄바꿈 · ⌘↩도 지원").accessibilityLabel("편집 요청 보내기")
                         .disabled(question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || question.count > 12_000)
                 }
             }
+            Text("Enter 전송 · Shift+Enter 줄바꿈").assistantFont(10).foregroundStyle(AppTheme.muted)
             if question.count > 12_000 { Text("요청은 12,000자 이내로 입력해 주세요.").assistantFont(10).foregroundStyle(AppTheme.rose) }
         }.padding(14).background(.white.opacity(0.75))
     }

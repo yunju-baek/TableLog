@@ -11,7 +11,7 @@ files+=['.verification/AppModel.swift','Verification/EditingChecks.swift']
 Path('.verification/sources.txt').write_text('\n'.join(files)+'\n')
 PY
 frameworks="${TABLELOG_BASE_APP:-$HOME/Applications/테이블로그.app}/Contents/Frameworks"
-xcrun swiftc -module-cache-path .build-cache -swift-version 5 -D TABLELOG_VERIFICATION \
+xcrun swiftc -module-cache-path "${TABLELOG_MODULE_CACHE:-$source_dir/.build-cache}" -swift-version 5 -D TABLELOG_VERIFICATION \
   -target arm64-apple-macosx26.0 -module-name TableLogEditingChecks -I Native -I Native/Sherpa \
   @.verification/sources.txt Native/libHwajaNative.a -L "$frameworks" \
   -lnemo_speech_asr -lsherpa-onnx-c-api -lc++ -framework PDFKit -framework Vision \

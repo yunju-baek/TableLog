@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContextEditorView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var usage=AIUsageStatus.shared
     let dismiss: () -> Void
     @State private var settings: CodexCorrectionSettings
     @State private var topic: String
@@ -51,7 +52,7 @@ struct ContextEditorView: View {
                         }
                         Button(settings.provider == .gemini ? "설치 확인" : "인증 확인") { check(connection:false) }
                             .disabled(checking || model.codexLoginRunning)
-                        Button("연결 테스트") { check(connection:true) }.disabled(checking || model.codexLoginRunning)
+                        Button(usage.isPaused(settings.provider) ? "연결 확인 후 재개" : "연결 테스트") { check(connection:true) }.disabled(checking || model.codexLoginRunning)
                         if checking { ProgressView().controlSize(.small);Button("중단") { checkTask?.cancel() } }
                     }
                     if settings.provider != .codex {
@@ -127,6 +128,7 @@ struct ContextEditorView: View {
             do {
                 let text=try await (connection ? AITextRunner.connectionTest(captured) : AITextRunner.installationStatus(captured))
                 try Task.checkCancellation();guard checkID==identifier else { return };connectionMessage=text
+                if connection { model.resumeAfterAIConnectionTest(provider:captured.provider) }
             } catch { guard checkID==identifier else { return };connectionMessage=error is CancellationError ? "연결 확인을 중단했어요." : error.localizedDescription }
         }
     }

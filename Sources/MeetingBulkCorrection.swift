@@ -119,7 +119,7 @@ struct MeetingBulkCorrection: Codable {
                 case .transcript: preview.rules[index].transcript += 1
                 case .speaker: preview.rules[index].speakers += 1
                 case .minutes: preview.rules[index].minutes += 1
-                case .material: break
+                case .material, .meeting: break
                 }
             }
             after += source.substring(from: cursor)
@@ -133,7 +133,7 @@ struct MeetingBulkCorrection: Codable {
         return Evaluation(preview: preview, changes: changes)
     }
 
-    private static func renameMinutes(_ text: String, to title: String) -> String {
+    static func renameMinutes(_ text: String, to title: String) -> String {
         let escaped = title.replacingOccurrences(of: "|", with: "\\|")
         if let field = text.firstMatch(of: minutesTitle) {
             return text.replacingCharacters(in: field.range, with: String(field.1) + escaped)

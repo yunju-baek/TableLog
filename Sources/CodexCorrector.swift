@@ -74,27 +74,47 @@ struct CodexCorrectionRun: Sendable {
     let model: String
 }
 struct CodexFailure: LocalizedError {
-    enum Kind: String { case unavailable, login, quota, model, timeout, process, response, tool }
+    enum Kind: String { case unavailable, login, quota, model, timeout, process, response, tool, busy }
     let kind: Kind
     var errorDescription: String? {
         switch kind {
         case .unavailable: return "AI CLI 실행 파일 경로를 AI 설정에서 확인해 주세요."
         case .login: return "선택한 AI CLI의 로그인을 완료한 뒤 다시 요청해 주세요."
-        case .quota: return "선택한 AI의 사용 한도에 도달했어요. 로컬 전사를 계속하고 교정을 대기 상태로 보관해요."
+        case .quota: return "AI 사용 한도에 도달해 해당 AI 요청을 일시 중지했어요. 녹음·로컬 전사·저장은 계속 사용할 수 있어요. 한도가 회복되면 AI 설정에서 ‘연결 확인 후 재개’를 누르거나 다른 AI를 선택해 주세요."
         case .model: return "선택한 모델 또는 추론 강도를 사용할 수 없어요. 문맥 교정 설정을 확인해 주세요."
         case .timeout: return "AI 응답 대기 시간이 초과했어요. 로컬 전사를 유지해요."
         case .process: return "AI CLI의 로그인·연결·모델 설정을 확인한 뒤 다시 요청해 주세요."
         case .response: return "AI 교정 응답의 발언 ID 또는 형식을 확인해야 해요. 원문을 유지해요."
         case .tool: return "교정 중 도구 실행 요청이 감지되어 결과를 보류했어요."
+        case .busy: return "AI 작업이 대기 중이에요. 진행 중인 요청을 마치거나 취소한 뒤 다시 시도해 주세요."
         }
     }
     var retryable: Bool { kind == .timeout || kind == .process }
     static func classify(_ text: String) -> Self {
         let t = text.lowercased()
-        if ["usage limit", "rate limit", "quota", "insufficient_quota", "usage_limit", "429", "credits"].contains(where: t.contains) { return Self(kind: .quota) }
+        if isQuotaMessage(t) { return Self(kind: .quota) }
         if ["not logged", "unauthorized", "401", "refresh token", "authentication", "sign in", "login required"].contains(where: t.contains) { return Self(kind: .login) }
         if ["model_not_found", "unsupported", "not supported", "invalid model", "does not exist", "reasoning_effort"].contains(where: t.contains) { return Self(kind: .model) }
         return Self(kind: .process)
+    }
+    static func isQuotaMessage(_ text: String) -> Bool {
+        let value = text.lowercased()
+        return ["usage limit", "rate limit", "rate_limit", "usage_limit", "insufficient_quota", "quota exceeded", "exceeded your quota", "quota has been exceeded", "quotaexceeded", "resource_exhausted", "too many requests", "credit balance is too low", "insufficient credits", "out of credits", "you've hit your limit", "you have hit your limit", "한도에 도달", "사용량 한도"].contains(where: value.contains)
+            || value.range(of: #"\b429\b"#, options: .regularExpression) != nil
+    }
+    /// Only error envelopes and CLI diagnostics may stop calls; ordinary answer text stays data.
+    static func quotaSignal(stdout: String, stderr: String) -> Bool {
+        if isQuotaMessage(stderr) { return true }
+        for line in stdout.split(separator: "\n") {
+            guard let value = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else { continue }
+            let type = value["type"] as? String ?? ""
+            var error: Any?
+            if ["error", "turn.failed"].contains(type) { error = value["error"] ?? value["message"] }
+            else if value["is_error"] as? Bool == true { error = value["error"] ?? value["result"] }
+            else if let failure = value["error"] { error = failure }
+            if let error, isQuotaMessage(String(describing: error)) { return true }
+        }
+        return false
     }
 }
 
@@ -105,10 +125,11 @@ final class CodexProcess: @unchecked Sendable {
     private var process: Process?
     private var cancelled = false
     private var timedOut = false
+    private var quotaExceeded = false
 
-    private func stop(timeout: Bool = false) {
+    private func stop(timeout: Bool = false, quota: Bool = false) {
         lock.lock()
-        if timeout { timedOut = true } else { cancelled = true }
+        if quota { quotaExceeded = true } else if timeout { timedOut = true } else { cancelled = true }
         let child = process
         if let child, child.isRunning {
             child.terminate()
@@ -120,25 +141,9 @@ final class CodexProcess: @unchecked Sendable {
     }
 
     func run(executable: URL, arguments: [String], input: String = "", directory: URL,
-             timeout: Double, environment: [String:String] = [:]) async throws -> Result {
-        guard arguments.first == "exec" else {
-            return try await runUnscheduled(executable: executable, arguments: arguments, input: input, directory: directory, timeout: timeout, environment: environment)
-        }
-        let permit = try await CodexJobScheduler.shared.acquire(priority: CodexJobContext.priority)
-        do {
-            try Task.checkCancellation()
-            let result = try await runUnscheduled(executable: executable, arguments: arguments, input: input, directory: directory, timeout: timeout, environment: environment)
-            await CodexJobScheduler.shared.release(permit)
-            return result
-        } catch {
-            await CodexJobScheduler.shared.release(permit)
-            throw error
-        }
-    }
-
-    private func runUnscheduled(executable: URL, arguments: [String], input: String, directory: URL,
-                               timeout: Double, environment: [String:String]) async throws -> Result {
-        try await withTaskCancellationHandler {
+             timeout: Double, environment: [String:String] = [:], detectQuota: Bool = false) async throws -> Result {
+        try Task.checkCancellation()
+        return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 DispatchQueue.global(qos: .utility).async {
                     do {
@@ -170,13 +175,29 @@ final class CodexProcess: @unchecked Sendable {
                         catch { self.lock.unlock(); throw error }
                         let watchdog = DispatchWorkItem { [weak self] in self?.stop(timeout: true) }
                         DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
+                        let outputReader = try FileHandle(forReadingFrom: stdout)
+                        let errorReader = try FileHandle(forReadingFrom: stderr)
+                        defer { try? outputReader.close(); try? errorReader.close() }
+                        var outputTail = "", errorTail = "", stoppedForQuota = false
+                        while child.isRunning {
+                            if detectQuota && !stoppedForQuota {
+                                outputTail += String(decoding: (try? outputReader.read(upToCount: 128_000)) ?? Data(), as: UTF8.self)
+                                errorTail += String(decoding: (try? errorReader.read(upToCount: 128_000)) ?? Data(), as: UTF8.self)
+                                if CodexFailure.quotaSignal(stdout: outputTail, stderr: errorTail) {
+                                    stoppedForQuota = true; self.stop(quota: true)
+                                }
+                                outputTail = String(outputTail.suffix(256_000)); errorTail = String(errorTail.suffix(32_000))
+                            }
+                            Thread.sleep(forTimeInterval: 0.1)
+                        }
                         child.waitUntilExit()
                         watchdog.cancel()
                         self.lock.lock()
-                        let cancelled = self.cancelled, timedOut = self.timedOut
+                        let cancelled = self.cancelled, timedOut = self.timedOut, quotaExceeded = self.quotaExceeded
                         self.process = nil
                         self.lock.unlock()
                         if cancelled { throw CancellationError() }
+                        if quotaExceeded { throw CodexFailure(kind: .quota) }
                         if timedOut { throw CodexFailure(kind: .timeout) }
                         func bounded(_ url: URL) throws -> String {
                             let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }
@@ -186,7 +207,10 @@ final class CodexProcess: @unchecked Sendable {
                     } catch { continuation.resume(throwing: error) }
                 }
             }
-        } onCancel: { self.stop() }
+        } onCancel: {
+            // Process launch/termination can hold its lock; cancellation must keep the UI thread free.
+            DispatchQueue.global(qos: .userInitiated).async { self.stop() }
+        }
     }
 }
 

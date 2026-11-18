@@ -307,6 +307,9 @@ struct MaterialContext: Codable, Equatable {
     }
     func analyze(provider:MinutesProvider,settings:CodexCorrectionSettings) {
         guard !busy,!loadFailed else { return }
+        guard !AIUsageStatus.shared.isPaused(settings.provider) else {
+            error=CodexFailure(kind:.quota).localizedDescription;status="자료 보관 완료 · AI 분석 일시 중지";return
+        }
         guard provider.isAvailable else {
             status="추출문 보관 완료 · 회의록 설정에서 선택한 AI CLI를 사용해 주세요."
             return

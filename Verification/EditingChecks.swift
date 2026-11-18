@@ -65,6 +65,118 @@ final class ControlledMicrophone: MicrophoneCapturing {
         func plan(_ doc:EditingDocument,_ text:String?=nil,speaker:Int = -1)->EditingPlan {
             EditingPlan(answer:"수정안입니다.",changes:[.init(targetID:doc.id,before:doc.text,after:text ?? doc.text,speaker:speaker)])
         }
+        _ = NSApplication.shared
+        let inputView=ChatInputTextView(frame:NSRect(x:0,y:0,width:300,height:60))
+        var sends=0
+        inputView.submit={ sends += 1 }
+        func enter(_ flags:NSEvent.ModifierFlags = [],code:UInt16=36) -> NSEvent {
+            NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:flags,timestamp:0,windowNumber:0,context:nil,characters:"\r",charactersIgnoringModifiers:"\r",isARepeat:false,keyCode:code)!
+        }
+        inputView.string="보낼 내용";inputView.setSelectedRange(NSRange(location:5,length:0))
+        inputView.keyDown(with:enter())
+        check(sends==1 && inputView.string=="보낼 내용","Enter submits without inserting a newline")
+        inputView.keyDown(with:enter(.shift))
+        check(sends==1 && inputView.string.contains("\n"),"Shift Enter inserts a newline without submitting")
+        inputView.keyDown(with:enter(.command));inputView.keyDown(with:enter([],code:76))
+        check(sends==3,"Command Enter and keypad Enter submit")
+        inputView.setMarkedText("한",selectedRange:NSRange(location:1,length:0),replacementRange:NSRange(location:NSNotFound,length:0))
+        inputView.keyDown(with:enter())
+        check(sends==3,"Enter during Korean composition keeps text in the editor")
+
+        let quotaDefaults=UserDefaults(suiteName:"local.TableLog.QuotaChecks."+UUID().uuidString)!
+        let scheduler=CodexJobScheduler(defaults:quotaDefaults,changed:{ _ in })
+        let firstPermit=try await scheduler.acquire(priority:.correction,provider:.codex)
+        let queuedA=Task { try await scheduler.acquire(priority:.assistant,provider:.codex) }
+        let queuedB=Task { try await scheduler.acquire(priority:.minutes,provider:.codex) }
+        let otherAI=Task { try await scheduler.acquire(priority:.userQuestion,provider:.claude) }
+        for _ in 0..<100 {
+            if await scheduler.pendingCount==3 { break }
+            try await Task.sleep(for:.milliseconds(10))
+        }
+        check(await scheduler.pendingCount==3,"multiple AI workflows enter the shared queue")
+        await scheduler.release(firstPermit,failure:.quota)
+        for job in [queuedA,queuedB] {
+            do { _=try await job.value;fatalError("quota must drain waiters") }
+            catch { check((error as? CodexFailure)?.kind == .quota,"quota promptly releases a waiting workflow") }
+        }
+        let otherPermit=try await otherAI.value
+        let codexPaused=await scheduler.isPaused(.codex), claudePaused=await scheduler.isPaused(.claude)
+        check(codexPaused && !claudePaused,"quota suspension applies only to the affected provider")
+        await scheduler.release(otherPermit)
+        do { _=try await scheduler.acquire(priority:.correction,provider:.codex);fatalError("paused request must fail") }
+        catch { check((error as? CodexFailure)?.kind == .quota,"new automatic requests fail before launching a CLI") }
+        let reopenedScheduler=CodexJobScheduler(defaults:quotaDefaults,changed:{ _ in })
+        check(await reopenedScheduler.isPaused(.codex),"quota suspension survives relaunch")
+        let probe=try await scheduler.acquire(priority:.userQuestion,provider:.codex,probe:true)
+        do { _=try await scheduler.acquire(priority:.userQuestion,provider:.codex,probe:true);fatalError("duplicate probe must fail") }
+        catch { check((error as? CodexFailure)?.kind == .busy,"only one connection probe can run per provider") }
+        await scheduler.release(probe)
+        check(await scheduler.isPaused(.codex),"process success alone keeps suspension until response validation")
+        await scheduler.resumeAfterConnectionTest(.codex)
+        let resumed=try await scheduler.acquire(priority:.correction,provider:.codex)
+        let cancelledWaiter=Task { try await scheduler.acquire(priority:.minutes,provider:.codex) }
+        for _ in 0..<100 {
+            if await scheduler.pendingCount==1 { break }
+            try await Task.sleep(for:.milliseconds(10))
+        }
+        cancelledWaiter.cancel()
+        do { _=try await cancelledWaiter.value;fatalError("cancelled waiter must finish") }
+        catch { check(error is CancellationError,"queue cancellation finishes promptly") }
+        await scheduler.release(resumed)
+        check(await scheduler.pendingCount==0,"cancelled queue has no leaked permit")
+        check(CodexFailure.quotaSignal(stdout:#"{"type":"turn.failed","error":{"message":"You have hit your usage limit"}}"#,stderr:""),"structured quota errors are recognized")
+        check(CodexFailure.quotaSignal(stdout:#"{"is_error":true,"result":"Credit balance is too low"}"#,stderr:""),"Claude quota errors are recognized")
+        check(CodexFailure.quotaSignal(stdout:"",stderr:"HTTP 429 Too Many Requests"),"rate limit diagnostics are recognized")
+        check(!CodexFailure.quotaSignal(stdout:#"{"type":"item.completed","item":{"type":"agent_message","text":"We discussed the usage limit and 429 credits."}}"#,stderr:""),"ordinary quoted quota discussion remains data")
+        let processRoot=root.appendingPathComponent("QuotaProcess")
+        try FileManager.default.createDirectory(at:processRoot,withIntermediateDirectories:true)
+        let stalled=Task {
+            try await CodexProcess().run(executable:URL(fileURLWithPath:"/bin/sh"),arguments:["-c", "trap '' TERM; printf '%s\\n' '{\"type\":\"error\",\"message\":\"usage limit reached\"}'; exec /bin/sleep 30"],directory:processRoot,timeout:20,detectQuota:true)
+        }
+        let quotaStart=Date()
+        try await Task.sleep(for:.milliseconds(100))
+        check(Date().timeIntervalSince(quotaStart)<1.5,"UI actor remains responsive while CLI quota handling runs")
+        do { _=try await stalled.value;fatalError("quota process should stop") }
+        catch { check((error as? CodexFailure)?.kind == .quota && Date().timeIntervalSince(quotaStart)<5,"quota aborts a retrying CLI before its normal timeout") }
+        let slow=Task {
+            try await CodexProcess().run(executable:URL(fileURLWithPath:"/bin/sleep"),arguments:["30"],directory:processRoot,timeout:20)
+        }
+        try await Task.sleep(for:.milliseconds(100))
+        let cancelStart=Date();slow.cancel()
+        do { _=try await slow.value;fatalError("process should cancel") }
+        catch { check(error is CancellationError && Date().timeIntervalSince(cancelStart)<4,"process cancellation releases execution promptly") }
+
+        let fakeCLI=processRoot.appendingPathComponent("fake-codex")
+        var probeSettings=settings;probeSettings.executablePath=fakeCLI.path
+        func installProbe(_ ok:Bool) throws {
+            let script="""
+            #!/bin/sh
+            while [ "$#" -gt 0 ]; do
+              if [ "$1" = "--output-last-message" ]; then
+                shift
+                printf '%s\\n' '{"ok":\(ok ? "true" : "false")}' > "$1"
+                exit 0
+              fi
+              shift
+            done
+            exit 1
+            """
+            try Data(script.utf8).write(to:fakeCLI)
+            try FileManager.default.setAttributes([.posixPermissions:0o700],ofItemAtPath:fakeCLI.path)
+        }
+        do {
+            _=try await AITextRunner.run(settings:probeSettings,schema:processRoot.appendingPathComponent("absent-schema"),
+                output:processRoot.appendingPathComponent("absent-output"),input:"fixture",directory:processRoot,timeout:5,scheduler:reopenedScheduler)
+            fatalError("paused runner should fail before finding an executable")
+        } catch { check((error as? CodexFailure)?.kind == .quota,"AI runner stops a paused request before touching the CLI") }
+        try installProbe(false)
+        do { _=try await AITextRunner.connectionTest(probeSettings,scheduler:reopenedScheduler);fatalError("invalid probe should fail") }
+        catch { check(await reopenedScheduler.isPaused(.codex),"invalid connection response preserves quota suspension") }
+        try installProbe(true)
+        _=try await AITextRunner.connectionTest(probeSettings,scheduler:reopenedScheduler)
+        let stillPaused=await reopenedScheduler.isPaused(.codex)
+        check(!stillPaused,"validated connection test resumes provider calls")
+
         var deliveredProgress: [Double] = []
         var deliveredRevisions: [Int] = []
         let updates = EngineWorker.FileUpdates(onProgress: { deliveredProgress.append($0.processedSeconds) },
@@ -143,6 +255,57 @@ final class ControlledMicrophone: MicrophoneCapturing {
         expectFailure("AI error response rejected") { _=try AITextRunner.normalizedResponse(#"{"is_error":true,"result":"authentication required"}"#,provider:.claude) }
         let merged=AITextRunner.merge(["security":["auth":"enterprise"],"admin":["mcp":["enabled":true],"other":true]],["admin":["mcp":["enabled":false]]])
         check((merged["security"] as? [String:String])?["auth"]=="enterprise" && (merged["admin"] as? [String:Any])?["other"] as? Bool==true,"Gemini administrator settings preserved")
+        do {
+        let infoRoot=root.appendingPathComponent("MeetingInfo")
+        let minutes=MeetingWorkspace(directory:infoRoot.appendingPathComponent("Minutes"),defaults:defaults)
+        let model=AppModel(materials:MeetingMaterials(root:infoRoot.appendingPathComponent("Materials")),meeting:minutes,
+            assistant:MeetingAssistant(directory:infoRoot.appendingPathComponent("Assistant"),defaults:defaults),loadEngine:false,
+            voice:VoiceIdentity(root:infoRoot.appendingPathComponent("Voice")),
+            history:MeetingHistoryStore(transcripts:infoRoot.appendingPathComponent("Transcripts"),minutes:infoRoot.appendingPathComponent("Minutes")),
+            transcriptDirectory:infoRoot.appendingPathComponent("Transcripts"),startBackgroundServices:false,preferences:defaults)
+        model.loadEditingFixture()
+        _=try minutes.applyChatDraft("# 교육과정 기획 회의\n\n## 결정 사항\n\n- 실습 운영 계획을 검토합니다.",expected:minutes.preview)
+        let infoCapture=model.editingSnapshot(), originalTitle=model.sessionTitle, originalPreview=minutes.preview
+        check(infoCapture.documents.filter{$0.kind == .meeting}.count==6,"meeting title and five context fields are editable documents")
+        check(infoCapture.focused(on:"다른 내용",limit:3000).documents.contains{$0.id=="meeting.title"},"meeting title survives context selection")
+        let titleRequest="회의 제목을 ‘운영협의체 회의’로 바꿔 줘"
+        let titlePlan=MeetingChatCommands.plan(for:titleRequest,snapshot:infoCapture)!
+        check(titlePlan.changes.first?.targetID=="meeting.title" && titlePlan.changes.first?.after=="운영협의체 회의","quoted Korean title request creates a local proposal")
+        check(MeetingChatCommands.plan(for:"회의제목: 새 운영 회의",snapshot:infoCapture)?.changes.first?.after=="새 운영 회의","colon title command is supported locally")
+        check(MeetingChatCommands.plan(for:"회의 제목을 바꾸는 방법이 뭐야?",snapshot:infoCapture)==nil,"title questions stay questions")
+        check(MeetingChatCommands.plan(for:"회의록 제목을 요약으로 바꿔 줘",snapshot:infoCapture)==nil,"minutes-only title requests retain their own scope")
+        model.editingChat.send(titleRequest)
+        let titleEntry=model.editingChat.entries.last!
+        check(titleEntry.status=="ready" && !model.editingChat.busy,"clear title command works without an external AI request")
+        model.editingChat.apply(titleEntry.id)
+        check(model.sessionTitle=="운영협의체 회의" && minutes.metadata?.title==model.sessionTitle,"chat title updates app and saved meeting metadata")
+        check(minutes.preview.contains("# 운영협의체 회의"),"chat title synchronizes the saved minutes heading")
+        let savedTitle=try JSONSerialization.jsonObject(with:Data(contentsOf:model.lastSavedURL!)) as! [String:Any]
+        check(savedTitle["title"] as? String==model.sessionTitle,"chat title persists in transcript history")
+        model.editingChat.undo(titleEntry.id)
+        check(model.sessionTitle==originalTitle && minutes.preview==originalPreview,"title undo restores app and minutes together")
+        let infoSnapshot=model.editingSnapshot()
+        let information=["meeting.purpose":"운영 계획 검토","meeting.location":"예시 회의실","meeting.schedule":"11월 18일 10~14시","meeting.terms":"예시사업단\n운영협의체"]
+        let infoChanges=information.map { key,value in EditingChange(targetID:key,before:infoSnapshot.documents.first{$0.id==key}!.text,after:value,speaker:-1) }
+        let infoReceipt=try model.applyEditingPlan(EditingPlan(answer:"기본정보 수정",changes:infoChanges),capture:infoSnapshot)
+        check(minutes.purpose==information["meeting.purpose"] && minutes.location=="예시 회의실" && minutes.scheduledTime=="11월 18일 10~14시","multiple meeting info fields apply together")
+        check(model.contextSettings.phrases.contains("예시사업단"),"chat glossary updates correction context")
+        let infoRecord=try JSONDecoder().decode(MeetingWorkRecord.self,from:JSONEncoder().encode(minutes.metadata!))
+        check(infoRecord.location=="예시 회의실" && infoRecord.scheduledTime=="11월 18일 10~14시","place and scheduled time survive persistence")
+        let infoMarkdown=try MeetingMinutesRenderer.render(infoRecord.snapshot(facts:MeetingMinutesFacts()),template:MeetingWorkspace.defaultTemplate)
+        check(infoMarkdown.contains("장소: 예시 회의실") && infoMarkdown.contains("예정 일시: 11월 18일 10~14시"),"meeting details appear in Markdown overview")
+        try infoReceipt.undo()
+        check(minutes.location.isEmpty && minutes.scheduledTime.isEmpty,"meeting details undo restores prior values")
+        let titleDocument=infoSnapshot.documents.first{$0.id=="meeting.title"}!
+        expectFailure("empty meeting title is rejected") { try plan(titleDocument,"").validate(in:infoSnapshot) }
+        expectFailure("multiline meeting title is rejected") { try plan(titleDocument,"한 줄\n두 줄").validate(in:infoSnapshot) }
+        let staleTitle=try model.applyEditingPlan(titlePlan,capture:infoCapture)
+        model.setMeetingTitle("나중에 정한 제목")
+        expectFailure("later manual title change is preserved on undo") { try staleTitle.undo() }
+        model.setMeetingTitle(originalTitle)
+        _=try minutes.applyChatDraft(originalPreview,expected:minutes.preview)
+        }
+
         let capture=model.editingSnapshot(), speech=capture.documents.first{$0.id=="utterance.2"}!
         let receipt=try model.applyEditingPlan(plan(speech,speaker:2),capture:capture)
         check(model.visibleSegments.contains{model.displayedText(for:$0)==speech.text && model.effectiveSpeaker($0)==2},"speaker reassignment applied")
@@ -337,11 +500,14 @@ final class ControlledMicrophone: MicrophoneCapturing {
         var generationQuitFinished = false
         main.prepareToQuit { generationQuitFinished = true }
         check(main.shutdownStage == .minutes && !generationQuitFinished,
-              "quit reports the pending AI minutes save while generation is running")
-        await controlled.resolve(.success(facts))
+              "quit begins saving local meeting state")
         for _ in 0..<200 where !generationQuitFinished { try await Task.sleep(for: .milliseconds(10)) }
         check(generationQuitFinished && main.shutdownStage == .finished,
-              "quit completes after the pending minutes save and engine shutdown")
+              "quit completes while the AI generator is still suspended")
+        check(try Data(contentsOf:savedURL)==savedData,"quit preserves the last completed minutes")
+        await controlled.resolve(.success(facts))
+        try await Task.sleep(for:.milliseconds(40))
+        check(try Data(contentsOf:savedURL)==savedData,"late AI completion after quit preserves the prior saved document")
 
         let autoRoot=root.appendingPathComponent("AutoFinish")
         let autoGenerator=SuspendedMinutesGenerator()

@@ -21,7 +21,7 @@ for name,digest in manifest['sha256'].items():
     p=pathlib.Path(sys.argv[2]) if name=='libHwajaNative.a' else pathlib.Path(sys.argv[3])/name
     assert hashlib.sha256(p.read_bytes()).hexdigest()==digest, f'Runtime/bridge mismatch: {name}'
 PY
-xcrun swiftc -module-cache-path "$source_dir/.build-cache" -O -whole-module-optimization -swift-version 5 -target arm64-apple-macosx26.0 \
+xcrun swiftc -module-cache-path "${TABLELOG_MODULE_CACHE:-$source_dir/.build-cache}" -O -whole-module-optimization -swift-version 5 -target arm64-apple-macosx26.0 \
   -module-name TableLog -I "$source_dir/Native" -I "$source_dir/Native/Sherpa" \
   "$source_dir"/Sources/*.swift "$native_library" \
   -L "$stage_app/Contents/Frameworks" -lnemo_speech_asr -lsherpa-onnx-c-api -lc++ \

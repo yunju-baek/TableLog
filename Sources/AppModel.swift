@@ -876,6 +876,7 @@ import UniformTypeIdentifiers
     }
     func prepareToQuit(_ completion: @escaping () -> Void) {
         closing = true
+        meeting.beginShutdown()
         shutdownStage = .tasks
         editingChat.cancel()
         assistant.cancel()
@@ -1413,6 +1414,12 @@ extension AppModel {
     }
     private func scheduleCodexCorrection() {
         guard contextSettings.enabled else { return }
+        let quotaMessage=CodexFailure(kind:.quota).localizedDescription
+        if AIUsageStatus.shared.isPaused(codexSettings.provider) {
+            if correctionFailure != quotaMessage { correctionFailure=quotaMessage }
+        } else if correctionFailure == quotaMessage {
+            correctionFailure=nil;codexRetryCount=0;correctionResumeAfter = .distantPast
+        }
         if let correctionFailure {
             updateCorrectionStatus("AI 교정 대기 · \(remainingCorrections.count)개 · \(correctionFailure)")
             finishTestWhenCorrectionsSettle(); return
@@ -1497,6 +1504,12 @@ extension AppModel {
 }
 
 extension AppModel {
+    func resumeAfterAIConnectionTest(provider: AITextProvider) {
+        guard !closing, provider==codexSettings.provider else { return }
+        retryCodexCorrection()
+        if assistant.enabled { assistant.retry() }
+        meeting.resumeAfterAIConnectionTest()
+    }
     func updateEngineSettings(_ settings: EngineTuningSettings) {
         guard canStart, settings.valid else { return }
         engineSettings = settings; lowLatency = settings.rightContext == 3
@@ -1878,7 +1891,7 @@ extension AppModel {
             date:dateFormat.string(from:snapshot.date),title:sessionTitle,purpose:source?.purpose ?? snapshot.context.topic,
             template:source?.template ?? meeting.selectedTemplate,bindings:bindings,names:snapshot.names,
             segments:snapshot.segments,ended:true,provider:source?.provider ?? meeting.provider,
-            settings:codexSettings,output:nil,error:nil,updatedAt:Date(),materials:materials.context,endedAt:snapshot.endedAt ?? snapshot.date.addingTimeInterval(snapshot.duration))
+            settings:codexSettings,output:nil,error:nil,updatedAt:Date(),materials:materials.context,endedAt:snapshot.endedAt ?? snapshot.date.addingTimeInterval(snapshot.duration),location:source?.location,scheduledTime:source?.scheduledTime)
         guard meeting.openReprocessing(record:record,minutes:snapshot.markdown) else {
             errorMessage=meeting.error ?? "재가공본의 저장 위치를 확인해 주세요.";return false
         }
@@ -2065,6 +2078,16 @@ extension AppModel {
         }
         documents += speakerIDs.map { EditingDocument(id:"speaker.\($0)",kind:.speaker,title:"화자 \($0)",text:speakerName(for:$0),
             speaker:$0,sourceID:String($0),editableName:speakerNames[$0] != nil) }
+        if canEditMeetingTitle {
+            documents += [
+                EditingDocument(id:"meeting.title",kind:.meeting,title:"회의 제목",text:sessionTitle),
+                EditingDocument(id:"meeting.purpose",kind:.meeting,title:"회의 목적",text:meeting.purpose),
+                EditingDocument(id:"meeting.location",kind:.meeting,title:"회의 장소",text:meeting.location),
+                EditingDocument(id:"meeting.schedule",kind:.meeting,title:"예정 일시",text:meeting.scheduledTime),
+                EditingDocument(id:"meeting.context",kind:.meeting,title:"전사·교정 맥락",text:contextSettings.topic),
+                EditingDocument(id:"meeting.terms",kind:.meeting,title:"교정 용어",text:contextSettings.terms)
+            ]
+        }
         if meeting.sessionID==session {
             documents.append(EditingDocument(id:"minutes",kind:.minutes,title:"현재 회의록",text:meeting.preview))
         }
@@ -2074,7 +2097,8 @@ extension AppModel {
                     text:$0.text,sourceID:document.id.uuidString)
             }
         }
-        return EditingSnapshot(sessionID:session,documents:documents,meetingTitle:sessionTitle)
+        let date=DateFormatter();date.dateFormat="yyyy-MM-dd"
+        return EditingSnapshot(sessionID:session,documents:documents,meetingTitle:sessionTitle,localDate:date.string(from:Date()))
     }
     func applyEditingPlan(_ plan: EditingPlan, capture: EditingSnapshot) throws -> EditingReceipt {
         guard !closing, plan.changeCount > 0 else { throw EditingError.unavailable }
@@ -2082,6 +2106,7 @@ extension AppModel {
         let pairs=plan.changes.compactMap { change -> (EditingChange,EditingDocument)? in
             capture.documents.first(where:{$0.id==change.targetID}).map { (change,$0) }
         }
+        if pairs.first?.1.kind == .meeting { return try applyMeetingInfo(plan.changes) }
         if let (change,document)=pairs.first, document.kind == .minutes {
             return try meeting.applyChatDraft(change.after,expected:change.before)
         }
@@ -2101,6 +2126,61 @@ extension AppModel {
             }
         }
         return try applyEditingTranscript(pairs)
+    }
+
+    private func applyMeetingInfo(_ changes:[EditingChange]) throws -> EditingReceipt {
+        guard canEditMeetingTitle else { throw EditingError.unavailable }
+        let sessionID=session
+        let before=Dictionary(uniqueKeysWithValues:changes.map { ($0.targetID,$0.before) })
+        let after=Dictionary(uniqueKeysWithValues:changes.map { ($0.targetID,$0.after) })
+        let setValues: @MainActor ([String:String]) throws -> Void = { [weak self] values in
+            guard let self,!self.closing,self.session==sessionID else { throw EditingError.stale }
+            if let value=values["meeting.title"] { self.sessionTitle=value }
+            if let value=values["meeting.purpose"] { self.meeting.purpose=value }
+            if let value=values["meeting.location"] { self.meeting.location=value }
+            if let value=values["meeting.schedule"] { self.meeting.scheduledTime=value }
+            if let value=values["meeting.context"] { self.contextSettings.topic=value }
+            if let value=values["meeting.terms"] { self.contextSettings.terms=value }
+            self.syncMeetingMinutes(force:true)
+            try self.meeting.saveMetadata()
+            try self.saveCurrentTranscript()
+        }
+        var minutesReceipt:EditingReceipt?
+        do {
+            try setValues(after)
+            if let title=after["meeting.title"],!meeting.preview.isEmpty {
+                let updated=MeetingBulkCorrection.renameMinutes(meeting.preview,to:title)
+                if updated != meeting.preview { minutesReceipt=try meeting.applyChatDraft(updated,expected:meeting.preview) }
+            }
+            try saveCurrentTranscript()
+        } catch {
+            try minutesReceipt?.undo()
+            try setValues(before)
+            throw error
+        }
+        cancelCorrections();scheduleCorrection()
+        let validateUndo: @MainActor () throws -> Void = { [weak self] in
+            guard let self,!self.closing,self.session==sessionID else { throw EditingError.stale }
+            let current=Dictionary(uniqueKeysWithValues:self.editingSnapshot().documents.map { ($0.id,$0.text) })
+            guard after.allSatisfy({current[$0.key]==$0.value}) else { throw EditingError.stale }
+            try minutesReceipt?.validateUndo()
+        }
+        return EditingReceipt(note:"회의 기본정보 \(changes.count)개를 저장했어요." + (minutesReceipt == nil ? "" : " 회의록 제목도 함께 반영했어요."),url:minutesReceipt?.url,validateUndo:validateUndo) { [weak self] in
+            try validateUndo()
+            guard let self else { throw EditingError.stale }
+            let changedMinutes=self.meeting.preview
+            do {
+                try minutesReceipt?.undo()
+                try setValues(before)
+            } catch {
+                if minutesReceipt != nil,self.meeting.preview != changedMinutes {
+                    minutesReceipt=try self.meeting.applyChatDraft(changedMinutes,expected:self.meeting.preview)
+                }
+                try setValues(after)
+                throw error
+            }
+            self.cancelCorrections();self.scheduleCorrection()
+        }
     }
 
     func applyBulkCorrection(_ result: MeetingBulkCorrection.Evaluation, capture: EditingSnapshot) throws -> EditingReceipt {

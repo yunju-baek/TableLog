@@ -150,6 +150,8 @@ struct MeetingWorkspaceView: View {
                             Text("관련 주제: " + workspace.selectedTemplate.similarTopics.joined(separator:", ")).font(.caption).foregroundStyle(.secondary)
                         }
                         TextField("이번 회의 목적",text:$workspace.purpose).textFieldStyle(.roundedBorder)
+                        TextField("회의 장소",text:$workspace.location).textFieldStyle(.roundedBorder)
+                        TextField("예정 일시 · 예: 11월 18일 10~14시",text:$workspace.scheduledTime).textFieldStyle(.roundedBorder)
                     }.padding(7)
                 }
                 GroupBox("참석자 · 화자 연결") {

@@ -9,7 +9,7 @@ struct EditingConversationView: View {
             if chat.entries.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("말하듯 요청하면, 기록을 다듬어요.").assistantFont(14, weight: .semibold)
-                    Text("“전사록 및 회의록 교정: 코코전자 → 쿠쿠전자”\n“예산을 설명한 발언을 화자 2로 바꿔 줘”\n“회의록을 결정 사항 중심으로 정리해 줘”\n“이 내용을 ‘회의 배경’ 자료로 추가해 줘”")
+                    Text("“회의 제목을 운영협의회로 바꿔 줘”\n“장소는 부산, 예정 일시는 오늘 10~14시로 설정해 줘”\n“전사록 및 회의록 교정: 코코전자 → 쿠쿠전자”\n“예산을 설명한 발언을 화자 2로 바꿔 줘”\n“이 내용을 ‘회의 배경’ 자료로 추가해 줘”")
                         .assistantFont(11).lineSpacing(6).foregroundStyle(AppTheme.muted)
                     Text("수정안을 확인하고 적용하면 기록에 반영돼요.")
                         .assistantFont(10).foregroundStyle(AppTheme.muted)
@@ -110,7 +110,7 @@ struct EditingConversationView: View {
                 Text("수정 전").assistantFont(10).foregroundStyle(AppTheme.muted)
                 Text(change.before).textSelection(.enabled)
                 Text("수정 후").assistantFont(10).foregroundStyle(AppTheme.violet)
-                Text(change.after.isEmpty ? "발언 삭제" : change.after).textSelection(.enabled)
+                Text(change.after.isEmpty ? (doc?.kind == .meeting ? "항목 비우기" : "발언 삭제") : change.after).textSelection(.enabled)
             }
         }.assistantFont(13).padding(9).frame(maxWidth:.infinity,alignment:.leading)
             .background(.white,in:RoundedRectangle(cornerRadius:8))

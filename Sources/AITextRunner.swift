@@ -1,6 +1,6 @@
 import Foundation
 
-enum AITextProvider: String, Codable, CaseIterable, Identifiable {
+enum AITextProvider: String, Codable, CaseIterable, Identifiable, Sendable {
     case codex, claude, gemini
     var id: String { rawValue }
     var title: String { switch self { case .codex: return "Codex"; case .claude: return "Claude Code"; case .gemini: return "Gemini CLI" } }
@@ -38,20 +38,37 @@ enum AITextRunner {
         return settings.provider.title+" 설치 확인 · "+String(result.stdout.trimmingCharacters(in:.whitespacesAndNewlines).prefix(100))+" · 연결 테스트로 인증을 확인해 주세요."
     }
     private struct ClaudeAuthStatus: Decodable { let loggedIn: Bool }
-    static func connectionTest(_ settings: CodexCorrectionSettings) async throws -> String {
+    static func connectionTest(_ settings: CodexCorrectionSettings, scheduler: CodexJobScheduler = .shared) async throws -> String {
         let directory=try CodexCorrector.jobDirectory();defer { try? FileManager.default.removeItem(at:directory) }
         let schema=directory.appendingPathComponent("schema.json"),output=directory.appendingPathComponent("response.json")
         try Data(#"{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}"#.utf8).write(to:schema)
         _=try await CodexJobContext.$priority.withValue(.userQuestion) {
-            try await run(settings:settings,schema:schema,output:output,input:"Return exactly {\"ok\":true}. This is a connection test using synthetic data. Use no tools.",directory:directory,timeout:60)
+            try await run(settings:settings,schema:schema,output:output,input:"Return exactly {\"ok\":true}. This is a connection test using synthetic data. Use no tools.",directory:directory,timeout:60,isProbe:true,scheduler:scheduler)
         }
         guard let object=try JSONSerialization.jsonObject(with:Data(contentsOf:output)) as? [String:Any], object["ok"] as? Bool==true else { throw CodexFailure(kind:.response) }
+        try Task.checkCancellation()
+        await scheduler.resumeAfterConnectionTest(settings.provider)
         return settings.provider.title+" 연결 성공 · "+(settings.model.isEmpty ? "기본 모델" : settings.model)
     }
-    static func run(settings: CodexCorrectionSettings, schema: URL, output: URL, input: String, directory: URL, timeout: Double) async throws -> CodexProcess.Result {
+    static func run(settings: CodexCorrectionSettings, schema: URL, output: URL, input: String, directory: URL, timeout: Double, isProbe: Bool = false, scheduler: CodexJobScheduler = .shared) async throws -> CodexProcess.Result {
+        let permit = try await scheduler.acquire(priority: CodexJobContext.priority, provider: settings.provider, probe: isProbe)
+        do {
+            try Task.checkCancellation()
+            let result = try await execute(settings: settings, schema: schema, output: output, input: input, directory: directory, timeout: timeout)
+            try Task.checkCancellation()
+            if CodexFailure.quotaSignal(stdout: result.stdout, stderr: result.stderr) { throw CodexFailure(kind: .quota) }
+            guard result.code == 0 else { throw CodexFailure.classify(result.stderr + result.stdout) }
+            await scheduler.release(permit)
+            return result
+        } catch {
+            await scheduler.release(permit, failure: (error as? CodexFailure)?.kind)
+            throw error
+        }
+    }
+    private static func execute(settings: CodexCorrectionSettings, schema: URL, output: URL, input: String, directory: URL, timeout: Double) async throws -> CodexProcess.Result {
         if settings.provider == .codex {
             return try await CodexProcess().run(executable:executable(settings),
-                arguments:CodexCorrector.arguments(settings:settings,schema:schema,output:output),input:input,directory:directory,timeout:timeout)
+                arguments:CodexCorrector.arguments(settings:settings,schema:schema,output:output),input:input,directory:directory,timeout:timeout,detectQuota:true)
         }
         let schemaText=try String(contentsOf:schema,encoding:.utf8)
         var arguments:[String],environment:[String:String]=[:]
@@ -86,13 +103,7 @@ enum AITextRunner {
         case .codex: fatalError("handled above")
         }
         if !settings.model.isEmpty { arguments += ["--model",settings.model] }
-        let permit=try await CodexJobScheduler.shared.acquire(priority:CodexJobContext.priority)
-        let result:CodexProcess.Result
-        do {
-            try Task.checkCancellation()
-            result=try await CodexProcess().run(executable:executable(settings),arguments:arguments,input:input,directory:directory,timeout:timeout,environment:environment)
-            await CodexJobScheduler.shared.release(permit)
-        } catch { await CodexJobScheduler.shared.release(permit);throw error }
+        let result=try await CodexProcess().run(executable:executable(settings),arguments:arguments,input:input,directory:directory,timeout:timeout,environment:environment,detectQuota:true)
         try Task.checkCancellation()
         guard result.code==0 else { throw CodexFailure.classify(result.stderr+result.stdout) }
         let response=try normalizedResponse(result.stdout,provider:settings.provider)

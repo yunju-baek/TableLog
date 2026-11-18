@@ -9,7 +9,7 @@ enum AppShutdownStage: Equatable {
         case .tasks: return "AI와 자료 작업을 정리해요."
         case .audio: return "녹음을 저장하고 남은 발언을 정리해요."
         case .transcript: return "전사록과 편집 내용을 저장해요."
-        case .minutes: return "AI 회의록 저장을 기다려요."
+        case .minutes: return "회의 내용과 완료된 회의록을 보관해요."
         case .engines: return "음성 모델과 백그라운드 엔진을 정리해요."
         case .finished: return "저장을 마쳤어요. 앱을 닫아요."
         }

@@ -70,6 +70,9 @@ import Foundation
         return map
     }
     func receive(record next:MeetingWorkRecord,audioURL:URL?=nil) {
+        if let previous=record,previous.settings.provider != next.settings.provider {
+            failures=0;nextAttempt = .distantPast;error=nil
+        }
         let date=now(), switched=state.sessionID != next.id
         if switched {
             stop(requeue:true)
@@ -248,6 +251,11 @@ import Foundation
         return AssistantRequest(sessionID:record.id,runID:UUID(),kind:question == nil ? (explicit ? "manual_summary" : "automatic") : "question",title:record.title,purpose:record.purpose,baseStateRevision:state.revision,recordRevision:record.revision,coveredThroughSeconds:coverage,inputFingerprint:coveredFingerprint,hasMoreSpeech:hasMoreSpeech,reviewSuggestions:question != nil || explicit || date.timeIntervalSince(state.lastSuggestionAt ?? .distantPast)>=Double(max(60,suggestionInterval)),questionID:question?.id,question:question?.text,currentAgenda:state.currentAgenda,previousSummary:usable(state.summary),decisionCandidates:usable(state.decisionCandidates),openQuestions:usable(state.openQuestions),existingSuggestions:Array(state.suggestions.suffix(20)).map { s in var compact=s;compact.evidence=[];return compact },recentQuestions:Array(state.questions.filter { $0.status=="completed" }.suffix(4)).map { q in var brief=q;brief.text=String(q.text.prefix(1000));brief.answer=q.answer.map { String($0.prefix(1600)) };brief.evidence=[];return brief },evidence:evidence,materialOverview:selected.documents.prefix(40).map { doc in doc.title+" · "+String(doc.chunks.compactMap(\.summary).joined(separator:" ").prefix(350)) },mode:record.mode)
     }
     private func startIfNeeded(force:Bool=false) {
+        if let record, AIUsageStatus.shared.isPaused(record.settings.provider) {
+            let message=CodexFailure(kind:.quota).localizedDescription
+            if error != message { error=message;status="AI 사용 한도 · 분석 일시 중지" }
+            return
+        }
         let question=state.questions.first { $0.status=="queued" }
         guard task==nil,!loadFailed,let record,(enabled || force || question != nil || explicitSummary),now()>=nextAttempt else { return }
         guard question != nil || summaryPending else { return }
@@ -289,9 +297,9 @@ import Foundation
                 if !cancelled {
                     self.failures+=1
                     let quota=(error as? CodexFailure)?.kind == .quota
-                    self.nextAttempt=self.now().addingTimeInterval(quota ? 900 : min(600,30*pow(2,Double(min(4,self.failures-1)))))
-                    self.error=error.localizedDescription;self.status="도우미 재시도 대기 · 저장된 회의 맥락 유지"
-                    self.summaryPending=request.questionID==nil
+                    self.nextAttempt=quota ? .distantFuture : self.now().addingTimeInterval(min(600,30*pow(2,Double(min(4,self.failures-1)))))
+                    self.error=error.localizedDescription;self.status=quota ? "AI 사용 한도 · 분석 일시 중지" : "도우미 재시도 대기 · 저장된 회의 맥락 유지"
+                    self.summaryPending = !quota && request.questionID==nil
                     self.event("analysis_failed",message:error.localizedDescription)
                 }
                 try? AssistantFiles.write(["status":cancelled ? "cancelled" : "failed","message":error.localizedDescription],to:runFolder.appendingPathComponent("validation.json"))
