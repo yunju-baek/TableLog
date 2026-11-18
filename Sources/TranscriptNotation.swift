@@ -1,9 +1,18 @@
 import Foundation
 
 enum TranscriptPresentation {
+    static let previewLimit=900
+    private static let cache: NSCache<NSString,NSString> = {
+        let value=NSCache<NSString,NSString>();value.countLimit=200;value.totalCostLimit=2_000_000;return value
+    }()
     static func format(_ text: String) -> String {
-        TranscriptParagraphs.format(TranscriptNotation.normalize(text))
+        let key=text as NSString
+        if let saved=cache.object(forKey:key) { return saved as String }
+        let formatted=TranscriptParagraphs.format(TranscriptNotation.normalize(text))
+        cache.setObject(formatted as NSString,forKey:key,cost:(key.length+formatted.utf16.count)*2)
+        return formatted
     }
+    static func preview(_ text:String) -> String { format(String(text.prefix(previewLimit))) }
 }
 
 enum TranscriptNotation {

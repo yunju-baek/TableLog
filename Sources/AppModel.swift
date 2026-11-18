@@ -48,9 +48,10 @@ import UniformTypeIdentifiers
     @Published var errorMessage: String?
     @Published var segments: [TranscriptSegment] = [] { didSet { cachedEditedTexts=nil; cachedManualProjection=nil } }
     @Published var liveText = ""
-    @Published var audioSeconds: Double = 0
-    @Published var inputLevel: Double = 0
-    @Published var queuedSeconds: Double = 0
+    let captureMetrics=CaptureMetrics()
+    var audioSeconds: Double { get { captureMetrics.seconds } set { captureMetrics.setSeconds(newValue) } }
+    var inputLevel: Double { get { captureMetrics.level } set { captureMetrics.setLevel(newValue) } }
+    var queuedSeconds: Double { get { captureMetrics.queuedSeconds } set { captureMetrics.setQueue(newValue) } }
     @Published var devices: [MicrophoneDevice] = []
     @Published var selectedDeviceID: UInt32 = 0
     @Published private(set) var engineSettings = EngineTuningSettings()
@@ -59,7 +60,7 @@ import UniformTypeIdentifiers
     @Published private(set) var speakerReviewStatus = "녹음·본문 교정 완료 후 검토할 수 있어요."
     @Published private(set) var speakerReviewRunning = false
     @Published private(set) var playingReviewAudio = false
-    @Published private(set) var speakerOverrides: [Int: SpeakerOverride] = [:]
+    @Published private(set) var speakerOverrides: [Int: SpeakerOverride] = [:] { didSet { cachedConversationTurns=nil } }
     private var speakerReviewTask: Task<Void, Never>?
     private var speakerReviewRun = UUID()
     private var reviewPlayer: AVAudioPlayer?
@@ -86,7 +87,9 @@ import UniformTypeIdentifiers
     @Published private(set) var recognitionProvider: RecognitionProvider = .local
     @Published private(set) var hasGeminiKey = false
     @Published private(set) var cloudStatus = "Gemini 전사 · 준비"
-    @Published private(set) var cloudPendingSeconds: Double = 0
+    private(set) var cloudPendingSeconds: Double = 0 {
+        willSet { if (newValue>0) != (cloudPendingSeconds>0) { objectWillChange.send() } }
+    }
     @Published private(set) var cloudSegmentIDs: Set<Int> = []
     @Published private(set) var lastDebugURL: URL?
     @Published private(set) var comparisonURL: URL?
@@ -148,6 +151,7 @@ import UniformTypeIdentifiers
     private var quitCompletion: (() -> Void)?
     private var lastDraftAt = Date.distantPast
     private var timer: Timer?
+    private var lastBackgroundTick = -Double.infinity
     private var testStarted = false
     private var testCompleted = false
     private var closing = false
@@ -278,6 +282,9 @@ import UniformTypeIdentifiers
         if queuedSeconds != backlog { queuedSeconds = backlog }
         let cloudPending = cloudBuffer.bufferedSeconds + cloudInFlightSeconds
         if cloudPendingSeconds != cloudPending { cloudPendingSeconds = cloudPending }
+        let now=ProcessInfo.processInfo.systemUptime
+        guard now-lastBackgroundTick>=1 else { return }
+        lastBackgroundTick=now
         scheduleCorrection()
         syncMeetingMinutes()
         meeting.tick()
@@ -417,6 +424,9 @@ import UniformTypeIdentifiers
 
     private func startMicrophoneInput() throws {
         let id = session
+        let levels=LatestMainDelivery<Double>(interval:0.125) { [weak self] level in
+            if self?.session==id,self?.phase == .recording { self?.inputLevel=level }
+        }
         try microphone.start(deviceID: selectedDeviceID == 0 ? nil : selectedDeviceID,
             onAudio: { [weak self, worker = worker, recorder = audioRecorder] samples in
                 recorder?.append(samples)
@@ -432,8 +442,8 @@ import UniformTypeIdentifiers
                         self?.stopAfterFailure(AppFailure(message: "음성 처리 대기가 8초를 초과했어요. 현재까지의 발언을 저장해요. 다른 작업을 줄이거나 빠른 응답 설정을 꺼 주세요."))
                     }
                 }
-            }, onLevel: { [weak self] level in
-                DispatchQueue.main.async { if self?.session == id, self?.phase == .recording { self?.inputLevel = Double(level) } }
+            }, onLevel: { level in
+                levels.publish(Double(level))
             }, onError: { [weak self] error in
                 DispatchQueue.main.async { if self?.session == id { self?.stopAfterFailure(error) } }
             })
@@ -467,24 +477,27 @@ import UniformTypeIdentifiers
         debugRecorder?.recordLocal(snapshot: snapshot)
         // The model can emit a padded final token beyond the captured audio.
         let duration = max(0, snapshot.audioSeconds)
-        segments = snapshot.segments.map { segment in
+        var nextSegments = snapshot.segments.map { segment in
             let start = min(duration, max(0, segment.startTime))
             let end = min(duration, max(start, segment.endTime))
             return TranscriptSegment(id: segment.id, speaker: segment.speaker,
                 startTime: start, endTime: end, text: segment.text)
         }
         if let qwen {
-            segments = qwen.segments
+            nextSegments = qwen.segments
             qwenSegmentIDs = qwen.cloudIDs
             cloudDrafts = qwen.localDrafts
-            liveText = segments.map(\.text).joined(separator: " ")
+            let text=nextSegments.map(\.text).joined(separator:" ")
+            if liveText != text { liveText=text }
         } else if sessionProvider == .gemini, !cloudResults.isEmpty {
             let projection = HybridTranscript.project(local: snapshot, results: cloudResults)
-            segments = projection.segments
+            nextSegments = projection.segments
             cloudSegmentIDs = projection.cloudIDs
             cloudDrafts = projection.localDrafts
-            liveText = segments.map(\.text).joined(separator: " ")
-        } else { liveText = snapshot.text }
+            let text=nextSegments.map(\.text).joined(separator:" ")
+            if liveText != text { liveText=text }
+        } else if liveText != snapshot.text { liveText = snapshot.text }
+        if segments != nextSegments { segments=nextSegments }
         audioSeconds = duration
         let discovered = Set(segments.map(\.speaker) + snapshot.words.map(\.speaker))
             .filter { (1...8).contains($0) }
@@ -907,7 +920,13 @@ import UniformTypeIdentifiers
         }
     }
 
-    var conversationTurns: [ConversationTurn] { ConversationTurn.grouped(visibleSegments, speaker: effectiveSpeaker, breakBefore: manualProjection.breakIDs) }
+    private var cachedConversationTurns: [ConversationTurn]?
+    var conversationTurns: [ConversationTurn] {
+        if let cachedConversationTurns { return cachedConversationTurns }
+        let turns=ConversationTurn.grouped(visibleSegments, speaker: effectiveSpeaker, breakBefore: manualProjection.breakIDs)
+        cachedConversationTurns=turns
+        return turns
+    }
 
     func displayedText(for turn: ConversationTurn) -> String {
         turn.segments.map { displayedText(for: $0) }.joined(separator: " ")
@@ -968,7 +987,7 @@ import UniformTypeIdentifiers
         cachedEditedTexts=result
         return result
     }
-    private var cachedManualProjection: ManualTranscriptProjection?
+    private var cachedManualProjection: ManualTranscriptProjection? { didSet { cachedConversationTurns=nil } }
     private var manualProjection: ManualTranscriptProjection {
         if let cachedManualProjection { return cachedManualProjection }
         let texts=editedTexts

@@ -19,6 +19,7 @@ final class EngineWorker {
     private var lastJSON = ""
     private var lastSnapshotAt = -Double.infinity
     private let maxPendingSamples = 16000 * 8
+    private let liveUpdates=LatestMainDelivery<() -> Void> { $0() }
 
     var backlogSeconds: Double {
         lock.lock(); defer { lock.unlock() }
@@ -62,6 +63,7 @@ final class EngineWorker {
     }
 
     private func beginOnQueue(_ id: UUID, lowLatency: Bool, phrases: [String], tuning: EngineTuningSettings, resetCancellation: Bool = true) throws {
+        liveUpdates.cancelPending()
         try ensureLoaded(context: lowLatency ? 3 : 13, profile: Int32(tuning.diarProfile))
         let buffers = phrases.map { strdup($0) }
         defer { buffers.forEach { free($0) } }
@@ -107,7 +109,7 @@ final class EngineWorker {
             do {
                 try self.pushOnQueue(samples)
                 if let snapshot = try self.snapshotOnQueue(force: false) {
-                    DispatchQueue.main.async { onSnapshot(snapshot) }
+                    self.liveUpdates.publish { onSnapshot(snapshot) }
                 }
             } catch {
                 self.lock.lock(); self.acceptingAudio = false; self.lock.unlock()
@@ -132,7 +134,7 @@ final class EngineWorker {
         }
     }
 
-    private func snapshotOnQueue(force: Bool, interval: TimeInterval = 0.12) throws -> EngineSnapshot? {
+    private func snapshotOnQueue(force: Bool, interval: TimeInterval = 0.5) throws -> EngineSnapshot? {
         let now = ProcessInfo.processInfo.systemUptime
         if !force && now - lastSnapshotAt < interval { return nil }
         lastSnapshotAt = now
@@ -147,6 +149,7 @@ final class EngineWorker {
     func finish(session: UUID, completion: @escaping (Result<EngineSnapshot, Error>) -> Void) {
         lock.lock(); acceptingAudio = false; lock.unlock()
         queue.async {
+            self.liveUpdates.cancelPending()
             do {
                 guard self.handle != nil else { throw self.nativeError() }
                 guard hn_engine_finish(self.handle) == 0 else { throw self.nativeError() }
@@ -167,6 +170,7 @@ final class EngineWorker {
     func shutdown(completion: @escaping () -> Void) {
         lock.lock(); acceptingAudio = false; cancelled = true; lock.unlock()
         queue.async {
+            self.liveUpdates.cancelPending()
             if let handle = self.handle { hn_engine_destroy(handle); self.handle = nil }
             self.loadedContext = nil; self.queueSession = nil
             DispatchQueue.main.async(execute: completion)

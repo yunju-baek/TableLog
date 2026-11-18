@@ -177,6 +177,70 @@ final class ControlledMicrophone: MicrophoneCapturing {
         let stillPaused=await reopenedScheduler.isPaused(.codex)
         check(!stillPaused,"validated connection test resumes provider calls")
 
+        var modelNotifications=0
+        let captureObservation=model.objectWillChange.sink { modelNotifications += 1 }
+        let originalSeconds=model.audioSeconds
+        for index in 0..<1000 {
+            model.inputLevel=Double(index)/1000
+            model.audioSeconds=Double(index)/10
+            model.queuedSeconds=Double(index%30)/10
+        }
+        check(modelNotifications==0,"1000 meter/time updates leave the transcript model uninvalidated")
+        check(model.audioSeconds==99.9 && model.captureMetrics.elapsedSeconds==99,"meter isolation preserves exact recording duration")
+        model.inputLevel=0;model.audioSeconds=originalSeconds;model.queuedSeconds=0;captureObservation.cancel()
+        var latestValues:[Int]=[]
+        let delivery=LatestMainDelivery<Int> { latestValues.append($0) }
+        for index in 0..<1000 { delivery.publish(index) }
+        try await Task.sleep(for:.milliseconds(30))
+        check(latestValues==[999],"a stalled UI receives one latest live update instead of 1000 queued callbacks")
+        delivery.publish(1000);delivery.cancelPending()
+        try await Task.sleep(for:.milliseconds(30))
+        check(latestValues==[999],"finishing capture discards pending intermediate UI state")
+        let continuousSpeech=(0..<100).map { TranscriptSegment(id:$0,speaker:1,startTime:Double($0)*10,endTime:Double($0+1)*10,text:String(repeating:"회의 내용 ",count:15)) }
+        let boundedTurns=ConversationTurn.grouped(continuousSpeech)
+        check(boundedTurns.count>1 && boundedTurns.allSatisfy{$0.end-$0.start<=90 && $0.segments.map(\.text).joined(separator:" ").count<=900},"long same-speaker speech stays in bounded display cards")
+        check(boundedTurns.flatMap(\.segments)==continuousSpeech,"display grouping preserves every original segment and timestamp")
+        let appendedTurns=ConversationTurn.grouped(continuousSpeech+[.init(id:100,speaker:1,startTime:1000,endTime:1010,text:"새 발언")])
+        check(Array(appendedTurns.prefix(boundedTurns.count)).map(\.id)==boundedTurns.map(\.id),"appending speech preserves existing card identity")
+        var displayWindow=TranscriptDisplayWindow()
+        check(displayWindow.count==60 && displayWindow.hiddenCount(total:1000)==940,"live transcript initially mounts at most 60 cards")
+        displayWindow.didGrow(from:1000,to:1010,following:false)
+        check(displayWindow.hiddenCount(total:1010)==940,"new speech preserves earlier reading position")
+        displayWindow.showEarlier()
+        check(displayWindow.hiddenCount(total:1010)==880,"earlier transcript expands by one page")
+        displayWindow.reset();displayWindow.didGrow(from:1010,to:1020,following:true)
+        check(displayWindow.count==60 && displayWindow.hiddenCount(total:1020)==960,"following latest keeps the display window bounded")
+        check(displayWindow.hiddenCount(total:3)==0,"short meetings display every card")
+        let card=TranscriptCard(speaker:1,speakerName:"화자 1",start:0,end:1,text:"같은 표시",originalText:nil,
+            isCorrecting:false,isCloudTranscript:false,onEditName:nil,actionSessionID:UUID(),actionSegments:continuousSpeech)
+        var changedCard=card
+        check(card==changedCard,"unchanged transcript card can skip rendering")
+        changedCard=TranscriptCard(speaker:card.speaker,speakerName:card.speakerName,start:card.start,end:card.end,
+            text:"수정된 표시",originalText:nil,isCorrecting:false,isCloudTranscript:false,onEditName:nil,
+            actionSessionID:card.actionSessionID,actionSegments:card.actionSegments)
+        check(card != changedCard,"changed text invalidates the transcript card")
+        changedCard=card;changedCard.actionSegments.removeLast()
+        check(card != changedCard,"changed original action targets invalidate an identical display")
+        changedCard=card;changedCard.actionSessionID=UUID()
+        check(card != changedCard,"a new session invalidates captured transcript actions")
+        changedCard=card;changedCard.voiceName = .init(kind:.suggested,name:"김교수",detail:"목소리 제안")
+        check(card != changedCard,"voice identity changes invalidate the transcript card")
+        changedCard=card;changedCard.onEditText = {}
+        check(card != changedCard,"changed action availability invalidates the transcript card")
+        let oneLong=TranscriptSegment(id:101,speaker:1,startTime:0,endTime:600,text:String(repeating:"원문 보존 ",count:1000))
+        check(ConversationTurn.grouped([oneLong]).first?.segments==[oneLong] && TranscriptPresentation.preview(oneLong.text).count<1200,"one oversized segment keeps its full original and a bounded preview")
+        let benchmarkText=String(repeating:"이번 회의에서는 연구비 삼천만원과 에이아이 교육 운영 계획을 검토합니다. ",count:100)
+        let coldStart=Date()
+        var uncached=""
+        for _ in 0..<30 { uncached=TranscriptParagraphs.format(TranscriptNotation.normalize(benchmarkText)) }
+        let uncachedSeconds=Date().timeIntervalSince(coldStart)
+        let expected=TranscriptPresentation.format(benchmarkText),cacheStart=Date()
+        var cached=""
+        for _ in 0..<30 { cached=TranscriptPresentation.format(benchmarkText) }
+        let cachedSeconds=Date().timeIntervalSince(cacheStart)
+        check(cached==uncached && cached==expected,"cached formatting preserves the full normalized text")
+        print(String(format:"FORMAT BENCHMARK: uncached %.3f s, cached %.3f s (30 repeated displays)",uncachedSeconds,cachedSeconds))
+
         var deliveredProgress: [Double] = []
         var deliveredRevisions: [Int] = []
         let updates = EngineWorker.FileUpdates(onProgress: { deliveredProgress.append($0.processedSeconds) },

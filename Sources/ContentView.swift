@@ -21,6 +21,7 @@ struct ContentView: View {
     @State private var transcriptAtBottom = true
     @State private var scrollingTranscript = false
     @State private var latestTranscriptJump = 0
+    @State private var transcriptWindow = TranscriptDisplayWindow()
     @State private var copied = false
     @State private var showingSpeakerNames = false
     @State private var showingContextEditor = false
@@ -92,6 +93,7 @@ struct ContentView: View {
             if speakers.isEmpty { showingSpeakerNames = false }
         }
         .onChange(of: model.editingSessionID) { _, _ in
+            transcriptWindow.reset()
             transcriptAtBottom = true
             scrollingTranscript = false
         }
@@ -411,7 +413,7 @@ struct ContentView: View {
                     ProgressView().controlSize(.mini).tint(violet)
                 }
             }
-            Text(AppModel.time(model.audioSeconds))
+            CaptureClock(metrics:model.captureMetrics)
                 .font(.system(size: 38, weight: .light, design: .rounded))
                 .monospacedDigit()
                 .contentTransition(.numericText())
@@ -440,7 +442,7 @@ struct ContentView: View {
                 }
             } else {
                 VStack(alignment: .leading, spacing: 9) {
-                    InputLevelMeter(level: model.inputLevel, active: model.phase == .recording)
+                    CaptureInputMeter(metrics:model.captureMetrics,active:model.phase == .recording)
                         .frame(height: 22)
                     HStack {
                         Text("마이크 입력")
@@ -456,11 +458,7 @@ struct ContentView: View {
                 .lineSpacing(4)
                 .foregroundStyle(AppTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
-            if model.queuedSeconds > 1 {
-                Label(String(format: "처리 대기 %.1f초", model.queuedSeconds), systemImage: "clock")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(AppTheme.rose)
-            }
+            CaptureQueueLabel(metrics:model.captureMetrics)
         }
     }
 
@@ -710,6 +708,7 @@ struct ContentView: View {
     }
 
     private func jumpToLatestTranscript() {
+        transcriptWindow.reset()
         transcriptAtBottom = true
         scrollingTranscript = false
         latestTranscriptJump += 1
@@ -732,6 +731,16 @@ struct ContentView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 14) {
+                    let hiddenCount=transcriptWindow.hiddenCount(total:model.conversationTurns.count)
+                    if hiddenCount>0 {
+                        Button {
+                            transcriptAtBottom=false
+                            transcriptWindow.showEarlier()
+                        } label: {
+                            Label("이전 발언 \(min(hiddenCount,TranscriptDisplayWindow.pageSize))개 보기 · \(hiddenCount)개 남음", systemImage:"arrow.up.doc")
+                                .font(.system(size:12))
+                        }.buttonStyle(.bordered).frame(maxWidth:.infinity)
+                    }
                     if model.transcriptUndoCount > 0 {
                         HStack {
                             Text("수동 교정 적용").font(.caption).foregroundStyle(.secondary)
@@ -743,7 +752,7 @@ struct ContentView: View {
                         TranscriptCard(speaker: 0, speakerName: "화자 확인 중", start: 0, end: model.audioSeconds,
                                        text: model.liveText, originalText: nil, isCorrecting: false, isCloudTranscript: false, onEditName: nil)
                     } else {
-                        ForEach(model.conversationTurns) { turn in
+                        ForEach(model.conversationTurns.suffix(transcriptWindow.count)) { turn in
                             TranscriptCard(speaker: turn.speaker, speakerName: model.speakerName(for: turn.speaker),
                                            start: turn.start, end: turn.end, text: model.displayedText(for: turn),
                                            originalText: nil,
@@ -763,7 +772,9 @@ struct ContentView: View {
                                            onConfirmVoiceName: { model.confirmVoiceName(turn.speaker) },
                                            onDismissVoiceName: { model.dismissVoiceSuggestion(turn.speaker) },
                                            onUndoVoiceName: { model.undoAutomaticVoiceName(turn.speaker) },
-                                           continuousVoiceLearningEnabled: model.voice.vault.continuousLearningEnabled)
+                                           continuousVoiceLearningEnabled: model.voice.vault.continuousLearningEnabled,
+                                           actionSessionID:model.editingSessionID,actionSegments:turn.segments)
+                                .equatable()
                         }
                     }
                     if model.phase == .recording {
@@ -799,6 +810,9 @@ struct ContentView: View {
             }
             .onChange(of: latestTranscriptJump) { _, _ in
                 proxy.scrollTo("latest-transcript", anchor: .bottom)
+            }
+            .onChange(of:model.conversationTurns.count) { oldCount,newCount in
+                transcriptWindow.didGrow(from:oldCount,to:newCount,following:shouldFollowTranscript)
             }
             .onDisappear { scrollingTranscript = false }
         }
@@ -1010,7 +1024,7 @@ private struct FileTranscriptPreview: NSViewRepresentable {
     }
 }
 
-private struct TranscriptCard: View {
+struct TranscriptCard: View, Equatable {
     let speaker: Int
     let speakerName: String
     let start: Double
@@ -1030,6 +1044,8 @@ private struct TranscriptCard: View {
     var onDismissVoiceName: (() -> Void)? = nil
     var onUndoVoiceName: (() -> Void)? = nil
     var continuousVoiceLearningEnabled = false
+    var actionSessionID: UUID? = nil
+    var actionSegments: [TranscriptSegment] = []
     @State private var showingOriginal = false
 
     private var accent: Color {
@@ -1039,6 +1055,24 @@ private struct TranscriptCard: View {
 
     @State private var showingVoiceStatus = false
     @State private var confirmingDelete = false
+    @State private var showingFullText = false
+
+    /// Keep unchanged cards out of the render pass. Action targets participate in equality
+    /// so editing a preserved display string still captures the current original segments.
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.speaker == rhs.speaker && lhs.speakerName == rhs.speakerName &&
+        lhs.start == rhs.start && lhs.end == rhs.end && lhs.text == rhs.text && lhs.originalText == rhs.originalText &&
+        lhs.isCorrecting == rhs.isCorrecting && lhs.isCloudTranscript == rhs.isCloudTranscript &&
+        lhs.recognitionLabel == rhs.recognitionLabel && lhs.voiceName == rhs.voiceName &&
+        lhs.continuousVoiceLearningEnabled == rhs.continuousVoiceLearningEnabled &&
+        lhs.actionSessionID == rhs.actionSessionID && lhs.actionSegments == rhs.actionSegments &&
+        (lhs.onEditName != nil) == (rhs.onEditName != nil) && (lhs.onCompare != nil) == (rhs.onCompare != nil) &&
+        (lhs.onLearnVoice != nil) == (rhs.onLearnVoice != nil) && (lhs.onEditText != nil) == (rhs.onEditText != nil) &&
+        (lhs.onDeleteText != nil) == (rhs.onDeleteText != nil) &&
+        (lhs.onConfirmVoiceName != nil) == (rhs.onConfirmVoiceName != nil) &&
+        (lhs.onDismissVoiceName != nil) == (rhs.onDismissVoiceName != nil) &&
+        (lhs.onUndoVoiceName != nil) == (rhs.onUndoVoiceName != nil)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1046,11 +1080,15 @@ private struct TranscriptCard: View {
                 identity
                 HStack { Spacer(); actions }
             }
-            Text(TranscriptPresentation.format(text))
+            Text(TranscriptPresentation.preview(text))
                 .font(.system(size: 15)).lineSpacing(5)
                 .foregroundStyle(AppTheme.ink).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if text.count>TranscriptPresentation.previewLimit {
+                Button("전체 발언 보기 · \(text.count)자") { showingFullText=true }
+                    .font(.system(size:12)).buttonStyle(.plain).foregroundStyle(AppTheme.violet)
+            }
             if showingOriginal, let originalText {
                 Text(originalText).font(.caption).lineSpacing(4)
                     .foregroundStyle(AppTheme.muted).textSelection(.enabled)
@@ -1069,6 +1107,16 @@ private struct TranscriptCard: View {
             Button("발언 삭제", role: .destructive) { onDeleteText?() }
         } message: { Text("삭제 후 전사 편집 되돌리기로 복원할 수 있어요.") }
         .onChange(of: originalText) { _, value in if value == nil { showingOriginal = false } }
+        .sheet(isPresented:$showingFullText) {
+            VStack(alignment:.leading,spacing:12) {
+                HStack {
+                    Text(speakerName+" · 전체 발언").font(.headline)
+                    Spacer()
+                    Button("닫기") { showingFullText=false }.keyboardShortcut(.cancelAction)
+                }
+                FileTranscriptPreview(text:TranscriptPresentation.format(text),followLatest:false,jump:0,onScroll:{ _ in })
+            }.padding(20).frame(width:720,height:650)
+        }
     }
 
     private var identity: some View {
@@ -1270,6 +1318,24 @@ private struct SpeakerNamesEditor: View {
     }
 }
 
+private struct CaptureClock: View {
+    @ObservedObject var metrics:CaptureMetrics
+    var body:some View { Text(AppModel.time(Double(metrics.elapsedSeconds))) }
+}
+private struct CaptureInputMeter: View {
+    @ObservedObject var metrics:CaptureMetrics
+    let active:Bool
+    var body:some View { InputLevelMeter(level:metrics.level,active:active) }
+}
+private struct CaptureQueueLabel: View {
+    @ObservedObject var metrics:CaptureMetrics
+    var body:some View {
+        if let label=metrics.backlog {
+            Label(label,systemImage:"clock").font(.system(size:11,weight:.medium)).foregroundStyle(AppTheme.rose)
+        }
+    }
+}
+
 private struct InputLevelMeter: View {
     let level: Double
     let active: Bool
@@ -1280,16 +1346,14 @@ private struct InputLevelMeter: View {
     }
 
     var body: some View {
-        HStack(spacing: 3) {
-            ForEach(0..<24, id: \.self) { index in
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Double(index) / 24 < fraction
-                          ? AppTheme.violet
-                          : AppTheme.violet.opacity(0.12))
-                    .frame(maxWidth: .infinity)
+        Canvas { context,size in
+            let width=max(0,(size.width-23*3)/24)
+            for index in 0..<24 {
+                let bar=CGRect(x:CGFloat(index)*(width+3),y:0,width:width,height:size.height)
+                context.fill(Path(roundedRect:bar,cornerRadius:2),
+                    with:.color(Double(index)/24<fraction ? AppTheme.violet : AppTheme.violet.opacity(0.12)))
             }
         }
-        .animation(.linear(duration: 0.08), value: fraction)
         .accessibilityLabel("마이크 입력 음량")
         .accessibilityValue("\(Int(fraction * 100))퍼센트")
     }

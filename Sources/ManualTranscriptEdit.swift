@@ -121,7 +121,7 @@ struct ManualTranscriptProjection {
                 if index>0 { result.breakIDs.insert(part.id) }
             }
         }
-        result.segments=result.segments.filter { !(result.texts[$0.id] ?? "").trimmingCharacters(in:.whitespacesAndNewlines).isEmpty }
+        result.segments=result.segments.filter { (result.texts[$0.id] ?? "").unicodeScalars.contains { !CharacterSet.whitespacesAndNewlines.contains($0) } }
             .sorted { $0.startTime==$1.startTime ? $0.id<$1.id : $0.startTime<$1.startTime }
         return result
     }

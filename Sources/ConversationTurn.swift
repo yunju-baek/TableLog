@@ -10,15 +10,17 @@ struct ConversationTurn: Identifiable {
 
     static func grouped(_ segments: [TranscriptSegment], speaker: (TranscriptSegment) -> Int = { $0.speaker }, breakBefore: Set<Int> = []) -> [Self] {
         var turns: [Self] = []
-        var occurrences: [Int: Int] = [:]
+        var length=0
         for segment in segments {
             let label = speaker(segment)
-            if label > 0, turns.last?.speaker == label, !breakBefore.contains(segment.id) {
+            let size=segment.text.count
+            if label > 0, let last=turns.last,last.speaker == label,!breakBefore.contains(segment.id),
+               length+size+1<=TranscriptPresentation.previewLimit,segment.endTime-last.start<=90 {
                 turns[turns.count - 1].segments.append(segment)
+                length += size+1
             } else {
-                let occurrence = occurrences[label, default: 0]
-                occurrences[label] = occurrence + 1
-                turns.append(Self(id: "\(label):\(occurrence)", speaker: label, segments: [segment]))
+                turns.append(Self(id: "\(label):\(segment.id)", speaker: label, segments: [segment]))
+                length=size
             }
         }
         return turns

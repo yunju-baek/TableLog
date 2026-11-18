@@ -1,6 +1,6 @@
 import Foundation
 
-struct VoiceNamePresentation {
+struct VoiceNamePresentation: Equatable {
     enum Kind: Equatable { case none, manual, suggested, automatic }
     let kind: Kind
     let name: String
