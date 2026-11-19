@@ -60,34 +60,56 @@ struct MeetingHistoryError: LocalizedError {
     private let assistant: URL
     private var generation = UUID()
     private let snapshotCache: MeetingHistorySnapshotCache
+    private let readWorker = BoundedFileRead()
+    private let readTimeout: TimeInterval
+    typealias ScanOperation = (@escaping (MeetingHistoryReader.ScanProgress) -> Void, @escaping () -> Bool) -> MeetingHistoryReader.ScanResult
+    private let scanOperation: ScanOperation
 
-    init(transcripts: URL = StorageLocations.transcripts, minutes: URL = StorageLocations.minutes, assistant: URL? = nil) {
+    init(transcripts: URL = StorageLocations.transcripts, minutes: URL = StorageLocations.minutes, assistant: URL? = nil,
+         readTimeout: TimeInterval = 5, scanOperation: ScanOperation? = nil) {
         self.transcripts = transcripts; self.minutes = minutes
         self.trash = MeetingHistoryTrash(url: minutes.appendingPathComponent(".history-trash.json"))
         self.assistant = assistant ?? minutes.deletingLastPathComponent().appendingPathComponent("Assistant")
         self.snapshotCache = MeetingHistorySnapshotCache(transcripts: transcripts, minutes: minutes, assistant: self.assistant)
+        self.readTimeout = readTimeout
+        let assistant = self.assistant
+        self.scanOperation = scanOperation ?? { progress, cancelled in
+            MeetingHistoryReader.scan(transcripts: transcripts, minutes: minutes, assistant: assistant,
+                                      isCancelled: cancelled, onProgress: progress)
+        }
     }
     func refresh() async {
+        guard !loading, !Task.isCancelled else { return }
         let token = UUID(); generation = token; loading = true; error = nil
         let deletionRevision = deletionRevision
-        let transcripts = transcripts, minutes = minutes, assistant = assistant, trash = trash
-        let scan = Task.detached(priority: .userInitiated) {
+        let scanOperation = scanOperation, trash = trash
+        let result: MeetingHistoryReader.ScanResult
+        let deletions: Result<Set<UUID>, Error>
+        do {
+            (result, deletions) = try await readWorker.load(label: "지난 회의 목록", timeout: readTimeout) { [weak self] cancelled in
             let deletions = Result { try trash.read() }
-            let result = MeetingHistoryReader.scan(transcripts: transcripts, minutes: minutes, assistant: assistant) { [weak self] progress in
+            let result = scanOperation({ progress in
                 Task { @MainActor in
-                    guard let self, self.generation == token, self.loading else { return }
-                    self.allItems = progress.result.items
+                    guard let self, !cancelled(), self.generation == token, self.loading else { return }
+                    var merged = Dictionary(uniqueKeysWithValues: self.allItems.map { ($0.id, $0) })
+                    for item in progress.result.items { merged[item.id] = item }
+                    self.allItems = merged.values.sorted { $0.date == $1.date ? $0.id.uuidString < $1.id.uuidString : $0.date > $1.date }
                     self.partition(deletedIDs: self.deletionRevision == deletionRevision
                         ? ((try? deletions.get()) ?? self.lastDeletedIDs) : self.lastDeletedIDs)
                     self.status = "회의 불러오는 중 · \(progress.completed)/\(progress.total)개 파일 · \(self.items.count)개 회의"
                 }
-            }
+            }, cancelled)
             return (result, deletions)
-        }
-        let (result, deletions) = await withTaskCancellationHandler {
-            await scan.value
-        } onCancel: {
-            scan.cancel()
+            }
+        } catch {
+            guard generation == token else { return }
+            loading = false
+            partition(deletedIDs: lastDeletedIDs)
+            if !(error is CancellationError) {
+                self.error = error.localizedDescription
+                status += " · 파일 읽기 지연 · 불러온 회의 열람 가능"
+            }
+            return
         }
         guard generation == token, !Task.isCancelled else { if generation == token { loading = false }; return }
         allItems = result.items; loading = false
@@ -335,6 +357,7 @@ enum MeetingHistoryReader {
     }
 
     static func scan(transcripts: URL, minutes: URL, assistant: URL? = nil,
+                     isCancelled: () -> Bool = { Task.isCancelled },
                      onProgress: ((ScanProgress) -> Void)? = nil) -> ScanResult {
         let assistant = assistant ?? minutes.deletingLastPathComponent().appendingPathComponent("Assistant")
         var sources: [UUID: Sources] = [:], warnings: [String] = []
@@ -351,14 +374,14 @@ enum MeetingHistoryReader {
         var pendingDrafts: [URL: Bool] = [:]
         func publish() {
             completed += 1
-            guard let onProgress, !Task.isCancelled else { return }
+            guard let onProgress, !isCancelled() else { return }
             let now = ProcessInfo.processInfo.systemUptime
             guard now - lastProgressAt >= 0.15 || completed == total else { return }
             lastProgressAt = now
             onProgress(ScanProgress(result: result(), completed: completed, total: total))
         }
         for url in transcriptFiles {
-            if Task.isCancelled { break }
+            if isCancelled() { break }
             defer { publish() }
             do {
                 let value = try decoded(Transcript.self, url, indexOnly: true)
@@ -380,7 +403,7 @@ enum MeetingHistoryReader {
             } catch { warnings.append(url.lastPathComponent + " · " + error.localizedDescription) }
         }
         for url in recordFiles {
-            if Task.isCancelled { break }
+            if isCancelled() { break }
             defer { publish() }
             do {
                 let value = try decoded(Record.self, url, indexOnly: true)
@@ -400,7 +423,7 @@ enum MeetingHistoryReader {
             } catch { warnings.append(url.lastPathComponent + " · " + error.localizedDescription) }
         }
         for url in markdownFiles {
-            if Task.isCancelled { break }
+            if isCancelled() { break }
             defer { publish() }
             if let id = uuid(url) { var source = sources[id] ?? Sources(id: id); if source.markdown == nil { source.markdown = url }; sources[id] = source }
             else if !sources.values.contains(where: { $0.markdown?.standardizedFileURL == url.standardizedFileURL }) { let id = stableID(url); sources[id] = Sources(id: id, markdown: url) }
@@ -410,6 +433,7 @@ enum MeetingHistoryReader {
         func result() -> ScanResult {
             var items: [MeetingHistoryEntry] = []
             for source in sources.values {
+                if isCancelled() { break }
                 let transcript = source.transcriptMetadata, record = source.recordMetadata
                 let allowance: TimeInterval = transcript?.preciseSavedTime == true ? 0 : 1
                 let newerRecord = record != nil && (transcript == nil || (record?.saved != nil && transcript?.saved != nil && record!.saved! > transcript!.saved!.addingTimeInterval(allowance)))
@@ -537,8 +561,37 @@ private extension CodingUserInfoKey {
     static let historyIndexOnly = CodingUserInfoKey(rawValue: "TableLog.historyIndexOnly")!
 }
 
-/// Serialized read-only cache. Every reuse verifies fresh filesystem metadata.
+/// The actor only coordinates values. Blocking filesystem work runs on a bounded dispatch worker.
 actor MeetingHistorySnapshotCache {
+    private let values: MeetingHistorySnapshotValues
+    private let readWorker = BoundedFileRead()
+    private var revision = 0
+    private(set) var hitCount = 0
+    private(set) var cachedCount = 0
+
+    init(transcripts: URL, minutes: URL, assistant: URL, maximumEntries: Int = 8, maximumBytes: Int64 = 64 * 1024 * 1024) {
+        values = MeetingHistorySnapshotValues(transcripts: transcripts, minutes: minutes, assistant: assistant,
+                                             maximumEntries: maximumEntries, maximumBytes: maximumBytes)
+    }
+    func invalidate() { revision += 1; cachedCount = 0 }
+
+    func load(_ entry: MeetingHistoryEntry) async throws -> MeetingHistorySnapshot {
+        let values = values, requestedRevision = revision
+        let result = try await readWorker.load(label: "회의 상세 기록") { cancelled in
+            if values.revision != requestedRevision { values.invalidate(); values.revision = requestedRevision }
+            let snapshot = try values.load(entry)
+            if cancelled() { throw CancellationError() }
+            return (snapshot, values.hitCount, values.cachedCount)
+        }
+        guard revision == requestedRevision else { throw CancellationError() }
+        hitCount = result.1; cachedCount = result.2
+        return result.0
+    }
+}
+
+/// Access is serialized by the enclosing bounded worker, including metadata validation.
+private final class MeetingHistorySnapshotValues {
+    var revision = 0
     private struct Stamp: Equatable {
         let path: String
         let link: [Int64]

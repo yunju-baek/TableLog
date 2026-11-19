@@ -5,6 +5,13 @@ import Combine
 import CoreAudio
 import AVFoundation
 
+final class ReadProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var calls: Int { lock.lock(); defer { lock.unlock() }; return count }
+    func enter() -> Int { lock.lock(); defer { lock.unlock() }; count += 1; return count }
+}
+
 final class ControlledMicrophone: MicrophoneCapturing {
     var starts = 0
     var automaticallyDrain = false
@@ -67,14 +74,14 @@ final class ControlledMicrophone: MicrophoneCapturing {
         }
         _ = NSApplication.shared
         let blockedRead=DispatchSemaphore(value:0)
-        let workerExited=DispatchSemaphore(value:0)
+        let workerExited=ReadProbe()
         var startupHeartbeat=false
         let heartbeat=Task { @MainActor in
             try await Task.sleep(for:.milliseconds(10));startupHeartbeat=true
         }
         let readStarted=Date()
         let blockedResult:Result<VoiceVault,Error>=await StartupFileLoader.load(label:"검증 목소리",timeout:0.06) {
-            blockedRead.wait();defer { workerExited.signal() };return VoiceVault()
+            blockedRead.wait();defer { _ = workerExited.enter() };return VoiceVault()
         }
         check(startupHeartbeat && Date().timeIntervalSince(readStarted)<1,"blocked filesystem read releases startup while the UI actor keeps responding")
         if case .failure(let error)=blockedResult {
@@ -91,7 +98,7 @@ final class ControlledMicrophone: MicrophoneCapturing {
         check(try Data(contentsOf:protectedVoiceFile)==protectedVoiceData,"timed-out voice startup preserves the existing profile file during settings changes")
         blockedRead.signal()
         try await Task.sleep(for:.milliseconds(30))
-        check(workerExited.wait(timeout:.now()) == .success && timedOutVoice.loadingError != nil,
+        check(workerExited.calls == 1 && timedOutVoice.loadingError != nil,
               "a late successful read stays isolated from the protected app state")
         _=try await heartbeat.value
         let loadedVoice=await StartupFileLoader.load(label:"목소리") { try VoiceIdentity.readVault(root:protectedVoiceRoot) }
@@ -702,15 +709,88 @@ final class ControlledMicrophone: MicrophoneCapturing {
         }
         let preservedBytes = try preservedFiles.map { try Data(contentsOf: $0) }
         var historyProgress: [MeetingHistoryReader.ScanProgress] = []
-        let progressiveHistory = MeetingHistoryReader.scan(transcripts: trashTranscripts, minutes: trashMinutes) {
+        let progressiveHistory = MeetingHistoryReader.scan(transcripts: trashTranscripts, minutes: trashMinutes, onProgress: {
             historyProgress.append($0)
-        }
+        })
         check(historyProgress.first?.completed == 1 && historyProgress.first?.result.items.count == 1
               && historyProgress.last?.completed == historyProgress.last?.total
               && Set(progressiveHistory.items.map(\.id)) == Set(historyProgress.last!.result.items.map(\.id)),
               "history publishes a readable first meeting before completing the directory scan")
         check(progressiveHistory.items.count == 3 && progressiveHistory.items.allSatisfy(\.hasMinutes),
               "incremental history preserves transcript and standalone minutes entries")
+        let scanGate = DispatchSemaphore(value: 0), scanProbe = ReadProbe(), scanFinished = ReadProbe()
+        let boundedHistory = MeetingHistoryStore(transcripts: trashTranscripts, minutes: trashMinutes,
+            readTimeout: 0.1, scanOperation: { progress, cancelled in
+                let call = scanProbe.enter()
+                if call == 2 {
+                    progress(.init(result: .init(items: [progressiveHistory.items[0]], warnings: []), completed: 1, total: 3))
+                    scanGate.wait()
+                    progress(.init(result: .init(items: [], warnings: []), completed: 3, total: 3))
+                    _ = scanFinished.enter()
+                    return .init(items: [], warnings: [])
+                }
+                return progressiveHistory
+            })
+        await boundedHistory.refresh()
+        let scanStart = Date()
+        let stalledScan = Task { await boundedHistory.refresh() }
+        while scanProbe.calls < 2 { try await Task.sleep(for: .milliseconds(1)) }
+        await boundedHistory.refresh()
+        check(scanProbe.calls == 2, "opening history again shares the active scan instead of adding a blocked worker")
+        await stalledScan.value
+        check(!boundedHistory.loading && boundedHistory.error != nil && Date().timeIntervalSince(scanStart) < 1,
+              "blocked history scan ends its loading state at the deadline")
+        check(boundedHistory.items.count == 3, "partial timed-out refresh preserves previously loaded meetings")
+        for _ in 0..<4 { await boundedHistory.refresh() }
+        check(scanProbe.calls == 2, "repeated refresh after timeout keeps one underlying filesystem worker")
+        scanGate.signal()
+        while scanFinished.calls == 0 { try await Task.sleep(for: .milliseconds(1)) }
+        try await Task.sleep(for: .milliseconds(10))
+        check(boundedHistory.items.count == 3 && boundedHistory.error != nil,
+              "late scan progress and completion stay isolated from the visible meeting list")
+        await boundedHistory.refresh()
+        check(boundedHistory.items.count == 3 && boundedHistory.error == nil, "history refresh recovers after the original read returns")
+
+        let cancelledReader = BoundedFileRead(), cancelGate = DispatchSemaphore(value: 0), cancelProbe = ReadProbe()
+        let cancelledRead = Task {
+            try await cancelledReader.load(label: "검증 기록", timeout: 10) { _ in
+                _ = cancelProbe.enter(); cancelGate.wait(); return 42
+            }
+        }
+        while cancelProbe.calls == 0 { try await Task.sleep(for: .milliseconds(1)) }
+        let fileCancelStart = Date(); cancelledRead.cancel()
+        do { _ = try await cancelledRead.value; fatalError("cancelled read must throw") }
+        catch { check(error is CancellationError && Date().timeIntervalSince(fileCancelStart) < 0.5,
+                      "closing a view promptly cancels the caller of an uninterruptible file read") }
+        do {
+            _ = try await cancelledReader.load(label: "검증 기록") { _ in 9 }
+            fatalError("cancelled worker must keep its slot")
+        } catch { check((error as? BoundedFileRead.Delayed)?.alreadyRunning == true,
+                        "cancelled file reads retain their slot until the real read finishes") }
+        cancelGate.signal()
+
+        let cancellableHistory = MeetingHistoryStore(transcripts: trashTranscripts, minutes: trashMinutes,
+            readTimeout: 10, scanOperation: { _, _ in
+                _ = cancelProbe.enter(); scanGate.wait(); return progressiveHistory
+            })
+        let cancelledRefresh = Task { await cancellableHistory.refresh() }
+        while cancelProbe.calls < 2 { try await Task.sleep(for: .milliseconds(1)) }
+        cancelledRefresh.cancel(); await cancelledRefresh.value
+        check(!cancellableHistory.loading && cancellableHistory.error == nil,
+              "closing history clears the spinner without a false failure message")
+        scanGate.signal()
+
+        let snapshotCache = MeetingHistorySnapshotCache(transcripts: trashTranscripts, minutes: trashMinutes,
+                                                        assistant: trashRoot.appendingPathComponent("Assistant"))
+        let cachedEntry = progressiveHistory.items.first { $0.id == originalID }!
+        let firstSnapshot = try await snapshotCache.load(cachedEntry)
+        let secondSnapshot = try await snapshotCache.load(cachedEntry)
+        let snapshotCacheHits = await snapshotCache.hitCount
+        check(firstSnapshot.markdown == secondSnapshot.markdown && snapshotCacheHits == 1,
+              "background detail loading reuses a validated snapshot")
+        await snapshotCache.invalidate()
+        _ = try await snapshotCache.load(cachedEntry)
+        check(await snapshotCache.cachedCount == 1, "snapshot invalidation safely reloads on the bounded worker")
         let trashHistory = MeetingHistoryStore(transcripts: trashTranscripts, minutes: trashMinutes)
         await trashHistory.refresh()
         check(trashHistory.items.count == 3 && trashHistory.deletedItems.isEmpty, "history starts with every saved meeting")
