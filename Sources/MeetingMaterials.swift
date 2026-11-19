@@ -138,18 +138,35 @@ struct MaterialContext: Codable, Equatable {
     private var loadFailed = false
     var context: MaterialContext { .init(documents:documents.filter { $0.enabled && $0.currentVersion }) }
     var currentDocuments: [MeetingMaterial] { documents.filter(\.currentVersion) }
-    init(root: URL = StorageLocations.materials) {
-        self.root=root
+    struct InitialState {
+        var documents: [MeetingMaterial] = []
+        var folders: [MaterialFolder] = []
+        var libraryError: String?
+        var foldersError: String?
+    }
+    nonisolated static func readInitialState(root:URL) -> InitialState {
+        var state=InitialState()
         let manifest=root.appendingPathComponent("library.json")
         if FileManager.default.fileExists(atPath:manifest.path) {
-            do { documents=try JSONDecoder().decode([MeetingMaterial].self,from:Data(contentsOf:manifest)) }
-            catch { loadFailed=true;self.error="자료 목록을 읽을 수 없어요. 저장 폴더의 library.json을 확인해 주세요." }
+            do { state.documents=try JSONDecoder().decode([MeetingMaterial].self,from:Data(contentsOf:manifest)) }
+            catch { state.libraryError="자료 목록을 읽을 수 없어요. 저장 폴더의 library.json을 확인해 주세요." }
         }
-        let folderManifest=root.appendingPathComponent("folders.json")
-        if FileManager.default.fileExists(atPath:folderManifest.path) {
-            do { folders=try JSONDecoder().decode([MaterialFolder].self,from:Data(contentsOf:folderManifest)) }
-            catch { folderLoadFailed=true;self.error="폴더 연결 기록을 확인해 주세요. folders.json 원본을 보관했어요." }
+        let folders=root.appendingPathComponent("folders.json")
+        if FileManager.default.fileExists(atPath:folders.path) {
+            do { state.folders=try JSONDecoder().decode([MaterialFolder].self,from:Data(contentsOf:folders)) }
+            catch { state.foldersError="폴더 연결 기록을 확인해 주세요. folders.json 원본을 보관했어요." }
         }
+        return state
+    }
+    init(root: URL = StorageLocations.materials, initialState: Result<InitialState,Error>? = nil) {
+        self.root=root
+        do {
+            let state=try initialState?.get() ?? Self.readInitialState(root:root)
+            documents=state.documents;folders=state.folders
+            loadFailed=state.libraryError != nil;folderLoadFailed=state.foldersError != nil
+            let message=[state.libraryError,state.foldersError].compactMap{$0}.joined(separator:"\n")
+            error=message.isEmpty ? nil : message
+        } catch { loadFailed=true;folderLoadFailed=true;self.error=error.localizedDescription }
     }
     private func save() throws {
         guard !loadFailed else { throw MaterialError.message("기존 자료 목록을 확인한 뒤 앱을 다시 실행해 주세요.") }

@@ -26,6 +26,7 @@ import SwiftUI
     @Published private(set) var failure: String?
     @Published private(set) var isReady = false
     private var started = false
+    private var storageWarnings: [String] = []
 
     func start() async {
         guard !started else { return }
@@ -38,11 +39,15 @@ import SwiftUI
         if let error = storage.startupError { message = error }
 
         await update(.materials, "회의 자료와 연결한 폴더를 불러와요.")
-        let materials = MeetingMaterials()
+        let materialState=await StartupFileLoader.load(label:"회의 자료") { MeetingMaterials.readInitialState(root:storage.materials) }
+        let materials = MeetingMaterials(root:storage.materials,initialState:materialState)
         await update(.voices, "학습한 목소리와 이름을 불러와요.")
-        let voice = VoiceIdentity()
+        let voiceState=await StartupFileLoader.load(label:"학습한 목소리") { try VoiceIdentity.readVault(root:storage.voiceProfiles) }
+        let voice = VoiceIdentity(root:storage.voiceProfiles,initialVault:voiceState)
         await update(.workspace, "회의록 서식과 작성 설정을 불러와요.")
-        let meeting = MeetingWorkspace()
+        let templates=await StartupFileLoader.load(label:"회의록 서식") { try MeetingWorkspace.readTemplates(directory:storage.minutes) }
+        let meeting = MeetingWorkspace(directory:storage.minutes,initialTemplates:templates)
+        storageWarnings=[materials.error,voice.loadingError,meeting.error].compactMap{$0}
         await update(.connections, "마이크와 AI 설정을 준비해요.")
         let model = AppModel(materials: materials, meeting: meeting, loadEngine: false, voice: voice)
         self.model = model
@@ -73,6 +78,7 @@ import SwiftUI
             completed.insert(.engine)
             message = "준비를 마쳤어요."
             isReady = true
+            if !storageWarnings.isEmpty { model.errorMessage=storageWarnings.joined(separator:"\n\n") }
         case .failure(let error):
             failure = error.localizedDescription
             message = "모델 준비가 멈췄어요. 파일과 설정을 확인해 주세요."

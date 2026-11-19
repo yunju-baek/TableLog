@@ -66,6 +66,53 @@ final class ControlledMicrophone: MicrophoneCapturing {
             EditingPlan(answer:"수정안입니다.",changes:[.init(targetID:doc.id,before:doc.text,after:text ?? doc.text,speaker:speaker)])
         }
         _ = NSApplication.shared
+        let blockedRead=DispatchSemaphore(value:0)
+        let workerExited=DispatchSemaphore(value:0)
+        var startupHeartbeat=false
+        let heartbeat=Task { @MainActor in
+            try await Task.sleep(for:.milliseconds(10));startupHeartbeat=true
+        }
+        let readStarted=Date()
+        let blockedResult:Result<VoiceVault,Error>=await StartupFileLoader.load(label:"검증 목소리",timeout:0.06) {
+            blockedRead.wait();defer { workerExited.signal() };return VoiceVault()
+        }
+        check(startupHeartbeat && Date().timeIntervalSince(readStarted)<1,"blocked filesystem read releases startup while the UI actor keeps responding")
+        if case .failure(let error)=blockedResult {
+            check(error is StartupFileLoader.TimedOut,"a real blocking worker produces a bounded startup timeout")
+        } else { fatalError("blocked read must time out") }
+        let protectedVoiceRoot=root.appendingPathComponent("ProtectedVoice")
+        try FileManager.default.createDirectory(at:protectedVoiceRoot,withIntermediateDirectories:true)
+        let protectedVoiceFile=protectedVoiceRoot.appendingPathComponent("profiles.json")
+        var protectedVault=VoiceVault();protectedVault.threshold=0.72
+        let protectedVoiceData=try JSONEncoder().encode(protectedVault)
+        try protectedVoiceData.write(to:protectedVoiceFile)
+        let timedOutVoice=VoiceIdentity(root:protectedVoiceRoot,initialVault:blockedResult)
+        timedOutVoice.configure(mode:.off,threshold:0.8)
+        check(try Data(contentsOf:protectedVoiceFile)==protectedVoiceData,"timed-out voice startup preserves the existing profile file during settings changes")
+        blockedRead.signal()
+        try await Task.sleep(for:.milliseconds(30))
+        check(workerExited.wait(timeout:.now()) == .success && timedOutVoice.loadingError != nil,
+              "a late successful read stays isolated from the protected app state")
+        _=try await heartbeat.value
+        let loadedVoice=await StartupFileLoader.load(label:"목소리") { try VoiceIdentity.readVault(root:protectedVoiceRoot) }
+        let healthyVoice=VoiceIdentity(root:protectedVoiceRoot,initialVault:loadedVoice)
+        check(healthyVoice.loadingError==nil && healthyVoice.vault.threshold==0.72,"background voice loading preserves healthy stored profiles")
+        let readFailure:Result<MeetingMaterials.InitialState,Error> = .failure(StartupFileLoader.TimedOut(label:"자료"))
+        let protectedMaterials=MeetingMaterials(root:materialRoot,initialState:readFailure)
+        check(protectedMaterials.error != nil && protectedMaterials.documents.isEmpty,"timed-out materials expose an error and preserve unloaded state")
+        let templateRoot=root.appendingPathComponent("ProtectedTemplates")
+        let templateFolder=templateRoot.appendingPathComponent("Templates")
+        try FileManager.default.createDirectory(at:templateFolder,withIntermediateDirectories:true)
+        let template=MeetingWorkspace.defaultTemplate
+        let templateFile=templateFolder.appendingPathComponent(template.id.uuidString+".json")
+        let templateData=try JSONEncoder().encode(template);try templateData.write(to:templateFile)
+        let protectedWorkspace=MeetingWorkspace(directory:templateRoot,defaults:defaults,
+            initialTemplates:.failure(StartupFileLoader.TimedOut(label:"서식")))
+        protectedWorkspace.saveTemplate(template)
+        check(try Data(contentsOf:templateFile)==templateData && protectedWorkspace.error != nil,
+              "timed-out template startup preserves existing template files")
+        let templateResult=await StartupFileLoader.load(label:"서식") { try MeetingWorkspace.readTemplates(directory:templateRoot) }
+        check(try templateResult.get().count==1,"background template loading returns stored templates")
         let inputView=ChatInputTextView(frame:NSRect(x:0,y:0,width:300,height:60))
         var sends=0
         inputView.submit={ sends += 1 }

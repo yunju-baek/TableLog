@@ -334,20 +334,23 @@ enum VoiceMatching {
     private var player: AVAudioPlayer?
     private var filePanel: NSOpenPanel?
     var didChange: (() -> Void)?
-    init(root:URL = StorageLocations.voiceProfiles, embedding:VoiceEmbedding = VoiceEmbedding(), extractEmbedding: (([Float]) async throws -> [Float])? = nil) {
+    init(root:URL = StorageLocations.voiceProfiles, embedding:VoiceEmbedding = VoiceEmbedding(), extractEmbedding: (([Float]) async throws -> [Float])? = nil,
+         initialVault: Result<VoiceVault,Error>? = nil) {
         self.root=root;self.embedding=embedding;self.extractEmbedding=extractEmbedding
-        do {
-            try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
-            let file=root.appendingPathComponent("profiles.json")
-            if FileManager.default.fileExists(atPath:file.path) {
-                let decoded=try JSONDecoder().decode(VoiceVault.self,from:Data(contentsOf:file))
-                guard decoded.modelID == VoiceEmbedding.modelID,
-                      (0.4...0.95).contains(decoded.threshold), decoded.profiles.count <= 200,
-                      (decoded.profiles + decoded.archived).allSatisfy({ p in (p.samples+p.removedSamples).allSatisfy { $0.vector.count == 192 && $0.vector.allSatisfy(\.isFinite) } }) else { throw VoiceFailure(message:"목소리 프로필 모델·형식을 확인해 주세요.") }
-                vault=decoded
-            }
-        } catch { status="프로필 읽기 오류 · \(error.localizedDescription)"; loadFailed=true }
+        do { vault=try initialVault?.get() ?? Self.readVault(root:root) }
+        catch { status="프로필 읽기 오류 · \(error.localizedDescription)"; loadFailed=true }
     }
+    nonisolated static func readVault(root:URL) throws -> VoiceVault {
+        try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
+        let file=root.appendingPathComponent("profiles.json")
+        guard FileManager.default.fileExists(atPath:file.path) else { return VoiceVault() }
+        let decoded=try JSONDecoder().decode(VoiceVault.self,from:Data(contentsOf:file))
+        guard decoded.modelID == VoiceEmbedding.modelID,
+              (0.4...0.95).contains(decoded.threshold), decoded.profiles.count <= 200,
+              (decoded.profiles + decoded.archived).allSatisfy({ p in (p.samples+p.removedSamples).allSatisfy { $0.vector.count == 192 && $0.vector.allSatisfy(\.isFinite) } }) else { throw VoiceFailure(message:"목소리 프로필 모델·형식을 확인해 주세요.") }
+        return decoded
+    }
+    var loadingError: String? { loadFailed ? status : nil }
     private var loadFailed=false
     private func save() throws {
         guard !loadFailed else { throw VoiceFailure(message:"기존 프로필 파일 확인 후 앱을 다시 열어 주세요.") }

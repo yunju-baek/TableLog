@@ -123,7 +123,17 @@ struct MeetingWorkRecord: Codable {
     var assistantAppendix = ""
     var metadata: MeetingWorkRecord? { sessionID.flatMap { records[$0] } }
 
-    init(directory requestedDirectory: URL? = nil, generator: any MinutesGenerating = MinutesGenerator(), defaults: UserDefaults = .standard) {
+    private var templateLoadFailed=false
+    nonisolated static func readTemplates(directory:URL) throws -> [MeetingTemplate] {
+        let folder=directory.appendingPathComponent("Templates")
+        guard FileManager.default.fileExists(atPath:folder.path) else { return [] }
+        return try FileManager.default.contentsOfDirectory(at:folder,includingPropertiesForKeys:nil)
+            .filter{$0.pathExtension=="json"}.compactMap { file in
+                try? JSONDecoder().decode(MeetingTemplate.self,from:Data(contentsOf:file))
+            }
+    }
+    init(directory requestedDirectory: URL? = nil, generator: any MinutesGenerating = MinutesGenerator(), defaults: UserDefaults = .standard,
+         initialTemplates: Result<[MeetingTemplate],Error>? = nil) {
         let directory = requestedDirectory ?? Self.directory
         self.directory=directory;self.store=MeetingFileStore(directory:directory);self.generator=generator;self.defaults=defaults
         provider=MinutesProvider(rawValue:defaults.string(forKey:"minutes.provider") ?? "codex") ?? .codex
@@ -133,15 +143,10 @@ struct MeetingWorkRecord: Codable {
         selectedID=UUID(uuidString:defaults.string(forKey:"minutes.template") ?? "") ?? Self.defaultID
         templates=[Self.defaultTemplate]
         do {
-            let folder=directory.appendingPathComponent("Templates")
-            if FileManager.default.fileExists(atPath:folder.path) {
-                for file in try FileManager.default.contentsOfDirectory(at:folder,includingPropertiesForKeys:nil) where file.pathExtension=="json" {
-                    if let value=try? JSONDecoder().decode(MeetingTemplate.self,from:Data(contentsOf:file)) {
-                        templates.removeAll {$0.id==value.id};templates.append(value.minutesOnly)
-                    }
-                }
+            for value in try initialTemplates?.get() ?? Self.readTemplates(directory:directory) {
+                templates.removeAll {$0.id==value.id};templates.append(value.minutesOnly)
             }
-        } catch { self.error="회의록 저장 폴더를 확인해 주세요. " + error.localizedDescription }
+        } catch { templateLoadFailed=true;self.error="회의록 저장 폴더를 확인해 주세요. " + error.localizedDescription }
     }
     func begin(id:UUID) {
         // Archived sessions are read when opened, keeping launch work independent of history size.
@@ -216,6 +221,7 @@ struct MeetingWorkRecord: Codable {
     func attend(_ person:MeetingPerson) { bindings.confirmAttendance(person) }
     func remove(personID:String) { bindings.removeAttendance(personID:personID) }
     func saveTemplate(_ template:MeetingTemplate) {
+        guard !templateLoadFailed else { error="기존 회의록 서식을 확인한 뒤 앱을 다시 실행해 주세요.";return }
         let template = template.minutesOnly
         do {
             // Validate placeholders before saving; a malformed template never replaces a working one.
