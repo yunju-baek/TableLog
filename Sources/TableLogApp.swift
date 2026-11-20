@@ -46,24 +46,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(AppTheme.paper)
             .preferredColorScheme(.light)
-            .onAppear {
-                DispatchQueue.main.async {
-                    guard !startup.isReady,
-                          let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "main" }) ?? NSApp.mainWindow,
-                          !window.styleMask.contains(.fullScreen) else { return }
-                    window.setContentSize(NSSize(width: 520, height: 590))
-                    window.center()
-                }
-            }
+            .background(MainWindowSizing().frame(width: 0, height: 0))
             .task { await startup.start() }
             .onReceive(startup.$model) { delegate.model = $0; delegate.background = startup.background }
-            .onChange(of: startup.isReady) { _, ready in
-                guard ready, let window = NSApp.mainWindow else { return }
-                window.setContentSize(NSSize(width: 1440, height: 850))
-                window.center()
-            }
+
         }
-        .defaultSize(width: 520, height: 590)
+        .defaultSize(width: MainWindowSizing.preferredContentSize.width,
+                     height: MainWindowSizing.preferredContentSize.height)
         .windowResizability(.contentMinSize)
         .windowStyle(.hiddenTitleBar)
         .commands {
