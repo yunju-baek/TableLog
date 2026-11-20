@@ -121,24 +121,7 @@ struct CodexFailure: LocalizedError {
 /// Each request owns a process and private temporary directory. No shell interpolation.
 final class CodexProcess: @unchecked Sendable {
     struct Result { let code: Int32; let stdout: String; let stderr: String }
-    private let lock = NSLock()
-    private var process: Process?
-    private var cancelled = false
-    private var timedOut = false
-    private var quotaExceeded = false
-
-    private func stop(timeout: Bool = false, quota: Bool = false) {
-        lock.lock()
-        if quota { quotaExceeded = true } else if timeout { timedOut = true } else { cancelled = true }
-        let child = process
-        if let child, child.isRunning {
-            child.terminate()
-            DispatchQueue.global().asyncAfter(deadline: .now() + 2) { [weak child] in
-                if let child, child.isRunning { kill(child.processIdentifier, SIGKILL) }
-            }
-        }
-        lock.unlock()
-    }
+    private let child = ManagedChildProcess()
 
     func run(executable: URL, arguments: [String], input: String = "", directory: URL,
              timeout: Double, environment: [String:String] = [:], detectQuota: Bool = false) async throws -> Result {
@@ -156,61 +139,39 @@ final class CodexProcess: @unchecked Sendable {
                             if !fm.fileExists(atPath: url.path) { fm.createFile(atPath: url.path, contents: Data()) }
                             try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
                         }
-                        let read = try FileHandle(forReadingFrom: stdin)
-                        let out = try FileHandle(forWritingTo: stdout)
-                        let err = try FileHandle(forWritingTo: stderr)
-                        defer { try? read.close(); try? out.close(); try? err.close() }
-                        let child = Process()
-                        child.executableURL = executable; child.arguments = arguments; child.currentDirectoryURL = directory
-                        child.standardInput = read; child.standardOutput = out; child.standardError = err
                         var env = ProcessInfo.processInfo.environment
                         for key in ["OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL", "CODEX_ACCESS_TOKEN"] { env[key] = nil }
                         env["NO_COLOR"] = "1"
                         env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:" + (env["PATH"] ?? "")
                         for (key,value) in environment { env[key]=value }
-                        child.environment = env
-                        self.lock.lock()
-                        if self.cancelled { self.lock.unlock(); throw CancellationError() }
-                        do { try child.run(); self.process = child; self.lock.unlock() }
-                        catch { self.lock.unlock(); throw error }
-                        let watchdog = DispatchWorkItem { [weak self] in self?.stop(timeout: true) }
-                        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
                         let outputReader = try FileHandle(forReadingFrom: stdout)
                         let errorReader = try FileHandle(forReadingFrom: stderr)
                         defer { try? outputReader.close(); try? errorReader.close() }
-                        var outputTail = "", errorTail = "", stoppedForQuota = false
-                        while child.isRunning {
-                            if detectQuota && !stoppedForQuota {
+                        var outputTail = "", errorTail = ""
+                        let code = try self.child.run(executable: executable, arguments: arguments,
+                            environment: env, directory: directory, input: stdin, output: stdout,
+                            diagnostics: stderr, timeout: timeout) {
+                                guard detectQuota else { return }
                                 outputTail += String(decoding: (try? outputReader.read(upToCount: 128_000)) ?? Data(), as: UTF8.self)
                                 errorTail += String(decoding: (try? errorReader.read(upToCount: 128_000)) ?? Data(), as: UTF8.self)
-                                if CodexFailure.quotaSignal(stdout: outputTail, stderr: errorTail) {
-                                    stoppedForQuota = true; self.stop(quota: true)
-                                }
+                                if CodexFailure.quotaSignal(stdout: outputTail, stderr: errorTail) { throw CodexFailure(kind: .quota) }
                                 outputTail = String(outputTail.suffix(256_000)); errorTail = String(errorTail.suffix(32_000))
                             }
-                            Thread.sleep(forTimeInterval: 0.1)
-                        }
-                        child.waitUntilExit()
-                        watchdog.cancel()
-                        self.lock.lock()
-                        let cancelled = self.cancelled, timedOut = self.timedOut, quotaExceeded = self.quotaExceeded
-                        self.process = nil
-                        self.lock.unlock()
-                        if cancelled { throw CancellationError() }
-                        if quotaExceeded { throw CodexFailure(kind: .quota) }
-                        if timedOut { throw CodexFailure(kind: .timeout) }
                         func bounded(_ url: URL) throws -> String {
                             let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }
                             return String(decoding: try handle.read(upToCount: 2_000_000) ?? Data(), as: UTF8.self)
                         }
-                        continuation.resume(returning: Result(code: child.terminationStatus, stdout: try bounded(stdout), stderr: try bounded(stderr)))
+                        let result = Result(code: code, stdout: try bounded(stdout), stderr: try bounded(stderr))
+                        if detectQuota && CodexFailure.quotaSignal(stdout: result.stdout, stderr: result.stderr) {
+                            throw CodexFailure(kind: .quota)
+                        }
+                        continuation.resume(returning: result)
+                    } catch ManagedChildProcess.Failure.timeout {
+                        continuation.resume(throwing: CodexFailure(kind: .timeout))
                     } catch { continuation.resume(throwing: error) }
                 }
             }
-        } onCancel: {
-            // Process launch/termination can hold its lock; cancellation must keep the UI thread free.
-            DispatchQueue.global(qos: .userInitiated).async { self.stop() }
-        }
+        } onCancel: { self.child.cancel() }
     }
 }
 

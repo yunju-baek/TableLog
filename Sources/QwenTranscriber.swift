@@ -18,7 +18,7 @@ enum QwenTranscriber {
     }
 
     static func start(audio: URL, context: String,
-                      completion: @escaping (Result<[HybridTranscript.TimedChunk], Error>) -> Void) throws -> Process {
+                      completion: @escaping (Result<[HybridTranscript.TimedChunk], Error>) -> Void) throws -> ManagedChildProcess {
         try requireInstallation()
         guard let bridge = Bundle.main.url(forResource: "qwen_transcribe", withExtension: "py") else {
             throw AppFailure(message: "테이블로그의 Qwen 실행 파일을 확인해 주세요.")
@@ -29,39 +29,29 @@ enum QwenTranscriber {
         try fm.createDirectory(at: work, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         let output = work.appendingPathComponent("transcript.json")
         let diagnostics = work.appendingPathComponent("stderr.txt")
-        do {
-            try Data().write(to: diagnostics, options: .withoutOverwriting)
-            let errorFile = try FileHandle(forWritingTo: diagnostics)
-            defer { try? errorFile.close() }
-            let process = Process()
-            process.qualityOfService = .utility
-            process.executableURL = python
-            process.arguments = [bridge.path, directory.path, audio.path, output.path, context]
-            var environment = ProcessInfo.processInfo.environment
-            environment["HF_HUB_OFFLINE"] = "1"
-            environment["HF_HUB_DISABLE_TELEMETRY"] = "1"
-            environment["PYTHONNOUSERSITE"] = "1"
-            environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
-            process.environment = environment
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = errorFile
-            process.terminationHandler = { process in
-                let result = Result {
-                    guard process.terminationStatus == 0 else {
-                        let detail = (try? String(contentsOf: diagnostics, encoding: .utf8))?
-                            .split(whereSeparator: \.isNewline).last.map { String($0.prefix(240)) } ?? ""
-                        throw AppFailure(message: "Qwen 전사 실행 오류 (\(process.terminationStatus)). \(detail)")
-                    }
-                    return try JSONDecoder().decode([HybridTranscript.TimedChunk].self, from: Data(contentsOf: output))
+        try Data().write(to: diagnostics, options: .withoutOverwriting)
+        var environment = ProcessInfo.processInfo.environment
+        environment["HF_HUB_OFFLINE"] = "1"
+        environment["HF_HUB_DISABLE_TELEMETRY"] = "1"
+        environment["PYTHONNOUSERSITE"] = "1"
+        environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+        let process = ManagedChildProcess()
+        DispatchQueue.global(qos: .utility).async {
+            let result = Result {
+                let code = try process.run(executable: python,
+                    arguments: [bridge.path, directory.path, audio.path, output.path, context],
+                    environment: environment, directory: work, input: URL(fileURLWithPath: "/dev/null"),
+                    output: URL(fileURLWithPath: "/dev/null"), diagnostics: diagnostics, timeout: 3 * 60 * 60)
+                guard code == 0 else {
+                    let detail = (try? String(contentsOf: diagnostics, encoding: .utf8))?
+                        .split(whereSeparator: \.isNewline).last.map { String($0.prefix(240)) } ?? ""
+                    throw AppFailure(message: "Qwen 전사 실행 오류 (\(code)). \(detail)")
                 }
-                try? fm.removeItem(at: work)
-                DispatchQueue.main.async { completion(result) }
+                return try JSONDecoder().decode([HybridTranscript.TimedChunk].self, from: Data(contentsOf: output))
             }
-            try process.run()
-            return process
-        } catch {
             try? fm.removeItem(at: work)
-            throw error
+            DispatchQueue.main.async { completion(result) }
         }
+        return process
     }
 }

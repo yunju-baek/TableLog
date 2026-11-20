@@ -225,6 +225,37 @@ final class ControlledMicrophone: MicrophoneCapturing {
         do { _=try await slow.value;fatalError("process should cancel") }
         catch { check(error is CancellationError && Date().timeIntervalSince(cancelStart)<4,"process cancellation releases execution promptly") }
 
+        let exitStarted = Date()
+        for index in 0..<20 {
+            let result = try await CodexProcess().run(executable: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", "printf completed; exit 7"], directory: processRoot, timeout: 2)
+            check(result.code == 7 && result.stdout == "completed", "child exit is reaped directly, iteration \(index)")
+        }
+        check(Date().timeIntervalSince(exitStarted) < 8, "completed child processes release the AI queue promptly")
+        let timeoutStarted = Date()
+        do {
+            _ = try await CodexProcess().run(executable: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", "trap '' TERM; exec /bin/sleep 30"], directory: processRoot, timeout: 0.15)
+            fatalError("expected bounded process timeout")
+        } catch {
+            check((error as? CodexFailure)?.kind == .timeout && Date().timeIntervalSince(timeoutStarted) < 4,
+                  "deadline terminates and reaps a child that ignores TERM")
+        }
+        do {
+            _ = try await CodexProcess().run(executable: processRoot.appendingPathComponent("missing-cli"),
+                arguments: [], directory: processRoot, timeout: 1)
+            fatalError("expected missing executable failure")
+        } catch { check((error as NSError).domain == NSPOSIXErrorDomain, "spawn failures finish with an explicit error") }
+        let environmentResult = try await CodexProcess().run(executable: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "printf '%s' \"$TABLELOG_PROCESS_TEST\"; cat; pwd"], input: "stdin-ok:",
+            directory: processRoot, timeout: 2, environment: ["TABLELOG_PROCESS_TEST": "env-ok:"])
+        let environmentPrefix = "env-ok:stdin-ok:"
+        let reportedDirectory = String(environmentResult.stdout.dropFirst(environmentPrefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let expectedDirectoryInfo = try FileManager.default.attributesOfItem(atPath: processRoot.path)
+        let reportedDirectoryInfo = try FileManager.default.attributesOfItem(atPath: reportedDirectory)
+        check(environmentResult.stdout.hasPrefix(environmentPrefix)
+              && reportedDirectoryInfo[.systemFileNumber] as? UInt64 == expectedDirectoryInfo[.systemFileNumber] as? UInt64,
+              "direct spawn preserves stdin environment and working directory")
         let fakeCLI=processRoot.appendingPathComponent("fake-codex")
         var probeSettings=settings;probeSettings.executablePath=fakeCLI.path
         func installProbe(_ ok:Bool) throws {

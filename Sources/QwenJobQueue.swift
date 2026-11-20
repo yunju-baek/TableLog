@@ -20,12 +20,7 @@ import Foundation
     init(launch: Launcher? = nil) {
         self.launch = launch ?? { audio, context, completion in
             let process = try QwenTranscriber.start(audio: audio, context: context, completion: completion)
-            return {
-                if process.isRunning { process.terminate() }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                    if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-                }
-            }
+            return { process.cancel() }
         }
     }
     func enqueue(audio: URL, context: String, onStart: @escaping () -> Void = {},
