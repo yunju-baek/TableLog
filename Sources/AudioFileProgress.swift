@@ -7,6 +7,7 @@ struct AudioFileProgress: Equatable, Sendable {
         case openingFile
         case transcribing
         case waitingForCloud
+        case waitingForRecording
         case finishing
     }
 
@@ -24,7 +25,7 @@ struct AudioFileProgress: Equatable, Sendable {
         switch stage {
         case .preparingEngine, .openingFile:
             return nil
-        case .transcribing, .waitingForCloud, .finishing:
+        case .transcribing, .waitingForCloud, .waitingForRecording, .finishing:
             guard let totalSeconds else { return nil }
             return min(1, max(0, processedSeconds / totalSeconds))
         }
@@ -40,6 +41,8 @@ struct AudioFileProgress: Equatable, Sendable {
             return "음성을 전사하고 있어요. \(durationText)"
         case .waitingForCloud:
             return "Gemini 전사를 기다리고 있어요. \(durationText)"
+        case .waitingForRecording:
+            return "새 녹음 우선 처리 중 · \(durationText)"
         case .finishing:
             return "남은 전사 결과를 정리하고 있어요. \(durationText)"
         }

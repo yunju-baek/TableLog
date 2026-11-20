@@ -6,8 +6,9 @@ mkdir -p .verification
 python3 - <<'PY'
 from pathlib import Path
 Path('.verification/AppModel.swift').write_text(Path('Sources/AppModel.swift').read_text()+'\n'+Path('Verification/EditingFixture.swift.inc').read_text())
-files=sorted(str(p) for p in Path('Sources').glob('*.swift') if p.name not in ['AppModel.swift','TableLogApp.swift'])
-files+=['.verification/AppModel.swift','Verification/EditingChecks.swift']
+Path('.verification/VoiceIdentity.swift').write_text(Path('Sources/VoiceIdentity.swift').read_text()+'\n'+Path('Verification/VoiceIdentityFixture.swift.inc').read_text())
+files=sorted(str(p) for p in Path('Sources').glob('*.swift') if p.name not in ['AppModel.swift','VoiceIdentity.swift','TableLogApp.swift'])
+files+=['.verification/AppModel.swift','.verification/VoiceIdentity.swift','Verification/EditingChecks.swift']
 Path('.verification/sources.txt').write_text('\n'.join(files)+'\n')
 PY
 frameworks="${TABLELOG_BASE_APP:-$HOME/Applications/테이블로그.app}/Contents/Frameworks"

@@ -111,7 +111,7 @@ import UniformTypeIdentifiers
     private var cloudInputFinal = false
     private var cloudInFlightSeconds: Double = 0
     private var localSnapshot: EngineSnapshot?
-    private var qwenProcess: Process?
+    private var qwenJob: UUID?
     private var qwenSegmentIDs: Set<Int> = []
     private var qwenFallbackChunks: [Int] = []
     private var qwenCompletedChunks = 0
@@ -120,10 +120,10 @@ import UniformTypeIdentifiers
     private var stoppedByUser = false
     var usesGemini: Bool { recognitionProvider == .gemini }
     var usesQwen: Bool { recognitionProvider == .qwen }
-    var canCancelQwen: Bool { qwenProcess != nil && !closing }
+    var canCancelQwen: Bool { qwenJob != nil && !closing }
     var canChangeRecognitionProvider: Bool { !closing && !isBusy }
 
-    private let worker = EngineWorker()
+    private var worker = EngineWorker()
     private let microphone: any MicrophoneCapturing
     @Published private(set) var pauseTransition = false
     @Published private(set) var codexSettings = CodexCorrectionSettings() { didSet { cachedEditedTexts=nil; cachedManualProjection=nil } }
@@ -155,11 +155,58 @@ import UniformTypeIdentifiers
     private var testStarted = false
     private var testCompleted = false
     private var closing = false
+    var requestNextMeeting: ((Bool) -> Void)?
+    var backgroundProtectsHistory: ((UUID) -> Bool)?
+    var canImportWhileBackground: (() -> Bool)?
+    var recordingPriority: RecordingPriority?
+    private(set) var isBackgroundSession = false
+    var canContinueInBackground: Bool {
+        !closing && !isBackgroundSession && requestNextMeeting != nil && !voice.recording && !voice.learningBusy
+            && !materials.busy && !materials.isChoosingSource
+            && (processingFile || qwenJob != nil || (phase == .finishing && cloudInputFinal))
+    }
+    var canImportAudio: Bool { canStart && (canImportWhileBackground?() ?? true) }
+    var backgroundWorkPending: Bool {
+        isBusy || correctionTask != nil || (!remainingCorrections.isEmpty && correctionFailure == nil
+            && !correctionInterrupted && contextSettings.enabled && codexSettings.mode == .codex)
+            || meeting.hasPendingAutomaticWork
+    }
+    func makeNextMeeting(startBackgroundServices: Bool = true) -> AppModel {
+        let next = AppModel(materials: materials.makeSessionCopy(), meeting: meeting.makeSessionCopy(),
+            assistant: assistant.makeSessionCopy(), loadEngine: false, voice: voice.makeSessionCopy(),
+            history: history, transcriptDirectory: transcriptDirectory,
+            startBackgroundServices: startBackgroundServices, preferences: preferences)
+        next.selectedDeviceID = selectedDeviceID
+        return next
+    }
+    @discardableResult func moveToBackground(next: AppModel) -> Bool {
+        guard canContinueInBackground, persistCurrentTranscript() else { return false }
+        isBackgroundSession = true
+        timer?.invalidate(); timer = nil
+        editingChat.cancel(); assistant.cancel(); materials.cancel(); voice.close()
+        cancelSpeakerReview(); stopReviewAudio()
+        if !processingFile {
+            next.worker = worker
+            worker = EngineWorker()
+            next.worker.setAudioObserver(nil)
+        }
+        return true
+    }
+    private func releaseBackgroundEngine() {
+        let completedWorker = worker
+        worker = EngineWorker()
+        completedWorker.shutdown {}
+    }
+    func stopBackgroundWork() {
+        if canCancelQwen { cancelQwen() }
+        else if canStop { stop() }
+        else if cloudTask != nil { cancelCloud(); finalizeSession() }
+    }
     private var activeFilePanel: NSSavePanel?
     private var filePanelRequested = false
 
     var canStart: Bool { !closing && !voice.recording && !voice.busy && (phase == .ready || phase == .completed) }
-    var canStartRecording: Bool { meetingPrepared ? canStart : canPrepareMeeting }
+    var canStartRecording: Bool { canContinueInBackground || (meetingPrepared ? canStart : canPrepareMeeting) }
     var canStop: Bool { phase == .recording || phase == .paused }
     var canEditMeetingTitle: Bool { !closing && (meetingPrepared || canStop || phase == .completed) }
     var canPause: Bool { !closing && !processingFile && canStop && !pauseTransition }
@@ -288,7 +335,8 @@ import UniformTypeIdentifiers
         scheduleCorrection()
         syncMeetingMinutes()
         meeting.tick()
-        if !closing { assistant.tick() }
+        if !closing && !isBackgroundSession { assistant.tick() }
+        if !isBackgroundSession { recordingPriority?.update(active: !processingFile && (canStop || phase == .loading), backlog: backlog) }
     }
 
     func refreshDevices() {
@@ -325,6 +373,7 @@ import UniformTypeIdentifiers
     }
 
     func start() {
+        if canContinueInBackground { requestNextMeeting?(true); return }
         guard canStartRecording else { return }
         if !meetingPrepared && !prepareNewMeeting() { return }
         switch MicrophoneCapture.authorizationStatus {
@@ -552,7 +601,7 @@ import UniformTypeIdentifiers
     }
 
     func importAudio() {
-        guard canStart, activeFilePanel == nil, !filePanelRequested else { return }
+        guard canImportAudio, activeFilePanel == nil, !filePanelRequested else { return }
         // A button/accessibility action can arrive before AppKit promotes the visible
         // main window. Resolve that window instead of silently dropping the request.
         guard let window = NSApp.mainWindow ?? NSApp.keyWindow
@@ -567,7 +616,7 @@ import UniformTypeIdentifiers
             guard let self else { return }
             defer { self.filePanelRequested = false }
             guard let window, window.attachedSheet == nil, self.activeFilePanel == nil,
-                  self.canStart, self.session == selectionSession else { return }
+                  self.canImportAudio, self.session == selectionSession else { return }
             let panel = NSOpenPanel()
             panel.title = "전사할 음성 파일 선택"
             panel.allowedContentTypes = [.audio]
@@ -578,14 +627,14 @@ import UniformTypeIdentifiers
                 guard let self, let panel, self.activeFilePanel === panel else { return }
                 self.activeFilePanel = nil
                 guard response == .OK, let url = panel.url, !self.closing else { return }
-                guard self.canStart, self.session == selectionSession else {
+                guard self.canImportAudio, self.session == selectionSession else {
                     self.errorMessage = "현재 대화가 끝난 뒤 음성 파일을 다시 선택해 주세요."
                     return
                 }
                 // Let the native file sheet dismiss before saving the prior session
                 // and setting up the next audio stream on the main actor.
                 DispatchQueue.main.async { [weak self] in
-                    guard let self, !self.closing, self.canStart, self.session == selectionSession else { return }
+                    guard let self, !self.closing, self.canImportAudio, self.session == selectionSession else { return }
                     self.processFile(url)
                 }
             }
@@ -599,9 +648,9 @@ import UniformTypeIdentifiers
         statusMessage = fileProgress!.statusText
         let id = session
         worker.transcribeFile(url, session: id, lowLatency: lowLatency, phrases: appliedASRTerms, tuning: sessionEngineSettings,
-            shouldPauseAudio: sessionProvider == .gemini ? { [cloudBuffer] _ in
-                cloudBuffer.failure == nil && cloudBuffer.bufferedSeconds >= Double(CloudAudioBuffer.filePauseSeconds)
-            } : nil, onAudioDrained: { [recorder = audioRecorder] in
+            shouldPauseAudio: { [cloudBuffer, provider = sessionProvider] _ in
+                provider == .gemini && cloudBuffer.failure == nil && cloudBuffer.bufferedSeconds >= Double(CloudAudioBuffer.filePauseSeconds)
+            }, recordingPriority: recordingPriority, onAudioDrained: { [recorder = audioRecorder] in
                 // Close the writer off the UI thread. finishAudioRecording reads its cached result.
                 _ = try? recorder?.finish()
             }, onProgress: { [weak self] progress in
@@ -629,6 +678,7 @@ import UniformTypeIdentifiers
         cloudInputFinal = true
         cloudBuffer.finish(session: session)
         processingFile = false; fileProgress = nil
+        if isBackgroundSession { releaseBackgroundEngine() }
         if sessionProvider == .gemini, cloudTask != nil, cloudFailure == nil, !closing {
             phase = .finishing
             statusMessage = "마지막 Gemini 전사 결과를 받아 저장해요."
@@ -648,10 +698,10 @@ import UniformTypeIdentifiers
         statusMessage = "Qwen으로 녹음 본문을 다시 전사하고 있어요."
         persistCurrentTranscript()
         let id = session
-        do {
-            qwenProcess = try QwenTranscriber.start(audio: audio, context: qwenRecognitionContext) { [weak self] result in
-                guard let self, self.session == id, self.qwenProcess != nil, !self.closing else { return }
-                self.qwenProcess = nil
+        qwenJob = QwenJobQueue.shared.enqueue(audio: audio, context: qwenRecognitionContext,
+            onStart: { [weak self] in self?.statusMessage = "Qwen으로 녹음 본문을 다시 전사하고 있어요." }) { [weak self] result in
+                guard let self, self.session == id, self.qwenJob != nil, !self.closing else { return }
+                self.qwenJob = nil
                 do {
                     guard self.transcriptEdits.isEmpty, self.manualTranscriptEdits.isEmpty else {
                         throw AppFailure(message: "직접 수정한 내용과 함께 NVIDIA 초안을 저장해요.")
@@ -660,10 +710,7 @@ import UniformTypeIdentifiers
                 } catch { self.recordQwenError(error.localizedDescription) }
                 self.finalizeSession()
             }
-        } catch {
-            recordQwenError(error.localizedDescription)
-            finalizeSession()
-        }
+        statusMessage = "Qwen 재전사 · 작업 순서 대기"
     }
 
     private func applyQwen(_ chunks: [HybridTranscript.TimedChunk], to snapshot: EngineSnapshot) throws {
@@ -718,9 +765,9 @@ import UniformTypeIdentifiers
     }
 
     func cancelQwen() {
-        guard let process = qwenProcess else { return }
-        qwenProcess = nil
-        if process.isRunning { process.terminate() }
+        guard let job = qwenJob else { return }
+        qwenJob = nil
+        QwenJobQueue.shared.cancel(job)
         recordQwenError("Qwen 전사를 중지했어요.")
         if !closing { finalizeSession() }
     }
@@ -889,6 +936,7 @@ import UniformTypeIdentifiers
     }
     func prepareToQuit(_ completion: @escaping () -> Void) {
         closing = true
+        timer?.invalidate(); timer = nil
         meeting.beginShutdown()
         shutdownStage = .tasks
         editingChat.cancel()
@@ -1701,7 +1749,7 @@ extension AppModel {
     func syncMeetingMinutes(force: Bool = false) {
         guard !loadingHistory else { return }
         let folderKey = "\(codexSettings.provider.rawValue)|\(meeting.provider.rawValue)|\(codexSettings.model)|\(codexSettings.effort)|\(codexSettings.executablePath)"
-        if !closing && folderSettingsKey != folderKey {
+        if !closing && !isBackgroundSession && folderSettingsKey != folderKey {
             folderSettingsKey = folderKey
             materials.resumeFolderWatching(provider: meeting.provider, settings: codexSettings)
         }
@@ -1713,7 +1761,7 @@ extension AppModel {
             assistantAppendixKey = appendixKey
         }
         defer {
-            if !closing, let record = meeting.metadata {
+            if !closing, !isBackgroundSession, let record = meeting.metadata {
                 let key = "\(record.id)|\(record.revision)|\(record.ended)|\(savedAudioURL?.path ?? "")"
                 if assistantSyncKey != key {
                     assistantSyncKey = key
@@ -1814,12 +1862,17 @@ extension AppModel {
         persistCurrentTranscript()
     }
 
-    func confirmVoiceName(_ speaker: Int) {
+    @discardableResult
+    func confirmVoiceName(_ speaker: Int, expectedName: String? = nil) -> Bool {
+        let presentation = voiceNamePresentation(for: speaker)
         guard !closing, speakerIDs.contains(speaker), let match = voice.suggestions[speaker],
-              let name = voice.confirm(speaker: speaker) else { return }
+              presentation.kind == .suggested || presentation.kind == .automatic,
+              expectedName == nil || match.name == expectedName,
+              let name = voice.confirm(speaker: speaker) else { return false }
         setSpeakerName(name, for: speaker)
         startConfirmedVoiceLearning(speaker: speaker, profileID: match.profileID, name: name)
         syncMeetingMinutes(force: true)
+        return true
     }
 
     func confirmEnteredSpeakerName(_ name: String, for speaker: Int) {
@@ -1871,7 +1924,7 @@ extension AppModel {
 }
 
 extension AppModel {
-    var canPrepareMeeting: Bool { canStart && !materials.busy && !materials.isChoosingSource }
+    var canPrepareMeeting: Bool { (canStart || canContinueInBackground) && !materials.busy && !materials.isChoosingSource }
     var isReprocessing: Bool { reprocessingOrigin != nil }
     var canGenerateMinutes: Bool { !closing && !isBusy && !meeting.busy && meeting.canGenerate }
     var canRegenerateHistoryMinutes: Bool { isReprocessing && canGenerateMinutes }
@@ -1884,9 +1937,9 @@ extension AppModel {
         }
         return statusMessage
     }
-    func canDeleteHistory(_ id: UUID) -> Bool { !closing && !(id == session && isBusy) }
+    func canDeleteHistory(_ id: UUID) -> Bool { !closing && !(id == session && isBusy) && backgroundProtectsHistory?(id) != true }
     var canOpenHistoryForReprocessing: Bool {
-        canPrepareMeeting && !meeting.busy && !assistant.busy && correctionTask == nil
+        canStart && canPrepareMeeting && !meeting.busy && !assistant.busy && correctionTask == nil
             && !speakerReviewRunning && !voice.learningBusy
     }
     @discardableResult func openHistoryForReprocessing(_ snapshot: MeetingHistorySnapshot) -> Bool {
@@ -1987,7 +2040,10 @@ extension AppModel {
         else { syncMeetingMinutes(force: true) }
         scheduleCorrection()
     }
-    func newMeeting() { _ = prepareNewMeeting() }
+    func newMeeting() {
+        if canContinueInBackground { requestNextMeeting?(false); return }
+        _ = prepareNewMeeting()
+    }
     private func prepareNewMeeting() -> Bool {
         guard canPrepareMeeting,
               resetSession(title: "새 회의", source: "microphone", prepareOnly: true) else { return false }

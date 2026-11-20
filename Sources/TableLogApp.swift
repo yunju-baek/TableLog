@@ -3,6 +3,7 @@ import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var model: AppModel?
+    weak var background: BackgroundMeetings?
     private var shutdownWindow: AppShutdownWindow?
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -16,10 +17,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         shutdownWindow = window
         window.show()
         DispatchQueue.main.async {
-            model.prepareToQuit { [weak self] in
+            let finished = { [weak self] in
                 self?.shutdownWindow?.close()
                 sender.reply(toApplicationShouldTerminate: true)
             }
+            if let background = self.background { background.prepareToQuit(foreground: model, completion: finished) }
+            else { model.prepareToQuit(finished) }
         }
         return .terminateLater
     }
@@ -34,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Window("테이블로그", id: "main") {
             Group {
                 if startup.isReady, let model {
-                    ContentView(model: model)
+                    ContentView(model: model, background: startup.background).id(ObjectIdentifier(model))
                         .frame(minWidth: 940, minHeight: 650)
                 } else {
                     AppStartupView(startup: startup)
@@ -53,7 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
             .task { await startup.start() }
-            .onReceive(startup.$model) { delegate.model = $0 }
+            .onReceive(startup.$model) { delegate.model = $0; delegate.background = startup.background }
             .onChange(of: startup.isReady) { _, ready in
                 guard ready, let window = NSApp.mainWindow else { return }
                 window.setContentSize(NSSize(width: 1440, height: 850))
@@ -65,7 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("음성 파일 열기…") { model?.importAudio() }.keyboardShortcut("o").disabled(!startup.isReady || model?.canStart != true)
+                Button("음성 파일 열기…") { model?.importAudio() }.keyboardShortcut("o").disabled(!startup.isReady || model?.canImportAudio != true)
                 Button("지난 회의…") { NotificationCenter.default.post(name: MeetingHistoryPresentation.show, object: nil) }
                     .keyboardShortcut("o", modifiers: [.command, .shift]).disabled(!startup.isReady)
                 Button("JSON 저장…") { model?.saveJSON() }.keyboardShortcut("s").disabled(!startup.isReady || model?.canExport != true)

@@ -421,6 +421,29 @@ struct VoiceIdentityView: View {
     }
 }
 
+struct VoiceNameConfirmButton: View {
+    let speaker: Int
+    let name: String
+    var compact = false
+    var continuousLearningEnabled = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(compact ? "확정" : "이름 확정", systemImage: "checkmark")
+                .font(.system(size: 12, weight: .semibold))
+                .padding(.horizontal, 8).padding(.vertical, 5)
+                .background(AppTheme.violet.opacity(0.10), in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain).foregroundStyle(AppTheme.violet).fixedSize()
+        .accessibilityLabel("화자 \(speaker), \(name) 이름 확정")
+        .help(continuousLearningEnabled
+            ? "\(name) 이름을 바로 확정하고, 확인한 화자의 발언으로 누적 학습해요."
+            : "현재 대화의 화자 \(speaker)를 \(name) 이름으로 바로 확정해요.")
+    }
+}
+
 /// A compact shared presentation keeps the evidence and actions identical in
 /// transcript cards and the voice library sheet.
 struct VoiceNameStatusView: View {

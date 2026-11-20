@@ -34,6 +34,7 @@ enum QwenTranscriber {
             let errorFile = try FileHandle(forWritingTo: diagnostics)
             defer { try? errorFile.close() }
             let process = Process()
+            process.qualityOfService = .utility
             process.executableURL = python
             process.arguments = [bridge.path, directory.path, audio.path, output.path, context]
             var environment = ProcessInfo.processInfo.environment

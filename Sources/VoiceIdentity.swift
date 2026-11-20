@@ -340,6 +340,10 @@ enum VoiceMatching {
         do { vault=try initialVault?.get() ?? Self.readVault(root:root) }
         catch { status="프로필 읽기 오류 · \(error.localizedDescription)"; loadFailed=true }
     }
+    func makeSessionCopy() -> VoiceIdentity {
+        VoiceIdentity(root: root, initialVault: loadFailed
+            ? .failure(VoiceFailure(message: loadingError ?? "목소리 프로필 확인 필요")) : .success(vault))
+    }
     nonisolated static func readVault(root:URL) throws -> VoiceVault {
         try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
         let file=root.appendingPathComponent("profiles.json")

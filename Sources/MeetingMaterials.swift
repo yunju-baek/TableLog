@@ -168,6 +168,11 @@ struct MaterialContext: Codable, Equatable {
             error=message.isEmpty ? nil : message
         } catch { loadFailed=true;folderLoadFailed=true;self.error=error.localizedDescription }
     }
+    func makeSessionCopy() -> MeetingMaterials {
+        MeetingMaterials(root: root, initialState: .success(InitialState(documents: documents, folders: folders,
+            libraryError: loadFailed ? (error ?? "자료 목록 확인 필요") : nil,
+            foldersError: folderLoadFailed ? (error ?? "폴더 목록 확인 필요") : nil)))
+    }
     private func save() throws {
         guard !loadFailed else { throw MaterialError.message("기존 자료 목록을 확인한 뒤 앱을 다시 실행해 주세요.") }
         try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])

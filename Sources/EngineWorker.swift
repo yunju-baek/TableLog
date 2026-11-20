@@ -180,6 +180,7 @@ final class EngineWorker {
     /// Uses the same stream as the microphone, with bounded file decoding on the engine queue.
     func transcribeFile(_ url: URL, session: UUID, lowLatency: Bool, phrases: [String] = [], tuning: EngineTuningSettings = EngineTuningSettings(),
                         shouldPauseAudio: ((UUID) -> Bool)? = nil,
+                        recordingPriority: RecordingPriority? = nil,
                         onAudioDrained: (() -> Void)? = nil,
                         onProgress: ((AudioFileProgress) -> Void)? = nil,
                         onSnapshot: @escaping (EngineSnapshot) -> Void,
@@ -230,12 +231,13 @@ final class EngineWorker {
                 while !self.isCancelled {
                     // File decoding can outrun the cloud service. Wait on this
                     // worker only; microphone ingress and the UI never use this gate.
-                    while !self.isCancelled && shouldPauseAudio?(session) == true {
-                        publish(.waitingForCloud)
+                    while !self.isCancelled && (recordingPriority?.shouldYield == true || shouldPauseAudio?(session) == true) {
+                        publish(recordingPriority?.shouldYield == true ? .waitingForRecording : .waitingForCloud)
                         Thread.sleep(forTimeInterval: 0.02)
                     }
                     if self.isCancelled { break }
-                    if lastProgressStage == .waitingForCloud { publish(.transcribing) }
+                    if lastProgressStage == .waitingForCloud || lastProgressStage == .waitingForRecording { publish(.transcribing) }
+                    if let delay = recordingPriority?.pacingDelay, delay > 0 { Thread.sleep(forTimeInterval: delay) }
                     var readError: Error?
                     var conversionError: NSError?
                     let status = converter.convert(to: output, error: &conversionError) { requested, inputStatus in

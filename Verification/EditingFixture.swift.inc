@@ -1,5 +1,34 @@
 #if TABLELOG_VERIFICATION
 extension AppModel {
+    func loadBackgroundFixture(file: Bool) {
+        loadEditingFixture()
+        processingFile = file
+        phase = file ? .recording : .finishing
+        cloudInputFinal = !file
+        endedAt = file ? nil : Date()
+        sessionProvider = .local
+    }
+    func completeBackgroundFixture() {
+        processingFile = false
+        phase = .completed
+        endedAt = Date()
+        persistCurrentTranscript()
+        syncMeetingMinutes(force: true)
+    }
+    func loadVoiceNameFixture() {
+        loadEditingFixture()
+        speakerNames = [:]
+        voiceNameAssignments = VoiceNameAssignments()
+        voice.loadNameSuggestionsFixture()
+        syncMeetingMinutes(force: true)
+    }
+
+    func clearVoiceNameFixture() {
+        voice.reset(session: session)
+        voiceNameAssignments = VoiceNameAssignments()
+        loadEditingFixture()
+    }
+
     func loadRecordingFixture(directory: URL) throws {
         loadEditingFixture()
         endedAt = nil; startedAt = Date().addingTimeInterval(-3_600)

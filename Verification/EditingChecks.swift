@@ -32,7 +32,10 @@ final class ControlledMicrophone: MicrophoneCapturing {
 
 @main struct EditingChecks {
     @MainActor static func main() async throws {
-        let root=URL(fileURLWithPath:CommandLine.arguments.dropFirst().first ?? "/private/tmp/tablelog-edit-checks",isDirectory:true)
+        let voicePreview = Bundle.main.bundleIdentifier == "local.TableLog.VoicePreview"
+        let backgroundPreview = Bundle.main.bundleIdentifier == "local.TableLog.BackgroundPreview"
+        let root=URL(fileURLWithPath:(voicePreview || backgroundPreview) ? "/private/tmp/TableLogVoicePreview-"+UUID().uuidString :
+                        (CommandLine.arguments.dropFirst().first ?? "/private/tmp/tablelog-edit-checks"),isDirectory:true)
         try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
         let defaults=UserDefaults(suiteName:"local.TableLog.Verification."+UUID().uuidString)!
         defaults.set(false,forKey:"assistant.enabled");defaults.set(false,forKey:"minutes.automatic")
@@ -59,6 +62,8 @@ final class ControlledMicrophone: MicrophoneCapturing {
             transcriptDirectory:root.appendingPathComponent("Transcripts"),startBackgroundServices:false,preferences:defaults,microphone:previewMicrophone)
         if testingFile { showPreview(model, exerciseFileImport: true); return }
         model.loadEditingFixture()
+        if voicePreview { model.loadVoiceNameFixture(); showPreview(model); return }
+        if backgroundPreview { showBackgroundPreview(model); return }
         if CommandLine.arguments.contains("--preview-recording") {
             try model.loadRecordingFixture(directory: root.appendingPathComponent("PreviewAudio"))
             showPreview(model); return
@@ -73,6 +78,26 @@ final class ControlledMicrophone: MicrophoneCapturing {
             EditingPlan(answer:"수정안입니다.",changes:[.init(targetID:doc.id,before:doc.text,after:text ?? doc.text,speaker:speaker)])
         }
         _ = NSApplication.shared
+        model.loadVoiceNameFixture()
+        check(model.voiceNamePresentation(for: 1).kind == .suggested && model.speakerName(for: 1) == "김하늘 추정",
+              "learned voice candidate is visible before explicit confirmation")
+        check(!model.confirmVoiceName(1, expectedName: "이전 후보") && model.enteredSpeakerName(for: 1).isEmpty,
+              "a stale visible candidate cannot confirm a different person")
+        check(model.confirmVoiceName(1, expectedName: "김하늘") && model.speakerName(for: 1) == "김하늘"
+              && model.voiceNamePresentation(for: 1).kind == .manual,
+              "one-click candidate confirmation updates all speaker displays")
+        check(model.meeting.metadata?.names[1] == "김하늘", "confirmed voice name reaches the meeting record")
+        let confirmedVoiceDocument = try JSONSerialization.jsonObject(with: Data(contentsOf: model.lastSavedURL!)) as! [String: Any]
+        let confirmedVoiceAssignments = confirmedVoiceDocument["voice_name_assignments"] as? [String: Any]
+        check((confirmedVoiceAssignments?["userControlledSpeakers"] as? [Int])?.contains(1) == true,
+              "explicit confirmation persists the user-controlled speaker assignment")
+        let confirmationEvents = model.voice.events.count
+        check(!model.confirmVoiceName(1) && model.voice.events.count == confirmationEvents,
+              "repeated confirmation preserves the confirmed name without another learning event")
+        check(model.voiceNamePresentation(for: 2).kind == .automatic && model.confirmVoiceName(2, expectedName: "이서준")
+              && model.voiceNamePresentation(for: 2).kind == .manual,
+              "automatic voice mapping also supports immediate explicit confirmation")
+        model.clearVoiceNameFixture()
         let blockedRead=DispatchSemaphore(value:0)
         let workerExited=ReadProbe()
         var startupHeartbeat=false
@@ -978,6 +1003,90 @@ final class ControlledMicrophone: MicrophoneCapturing {
             .init(id:"m",kind:.minutes,title:"회의록",text:"A B")])
         check(try rules.evaluate(in:isolated).changes.map(\.after)==["B C"],"literal replacement runs once and respects selected scope")
         check(MeetingBulkCorrection.parse("회의록에서 A → B로 바꿨나요?")==nil,"ordinary question remains an AI request")
+        // A file job and a final retranscription both retain their original meeting identity.
+        for file in [true, false] {
+            let previous = model.makeNextMeeting(startBackgroundServices: false)
+            previous.loadBackgroundFixture(file: file)
+            let previousID = previous.editingSessionID
+            let previousTitle = previous.sessionTitle
+            let previousNames = previous.speakerNames
+            let previousText = previous.liveText
+            let jobs = BackgroundMeetings(automaticTicks: false)
+            var foreground: AppModel?
+            jobs.makeNext = { $0.makeNextMeeting(startBackgroundServices: false) }
+            jobs.select = { foreground = $0 }
+            jobs.prepare = { next, record in
+                next.phase = .ready
+                next.newMeeting()
+                if record { next.phase = .recording }
+            }
+            jobs.connect(previous)
+            check(previous.canStartRecording && previous.canPrepareMeeting,
+                  "new recording is enabled during " + (file ? "file transcription" : "final retranscription"))
+            previous.start()
+            let next = foreground!
+            check(next.editingSessionID != previousID && next.phase == .recording && next.segments.isEmpty,
+                  "background handoff creates an empty independent recording session")
+            check(previous.editingSessionID == previousID && previous.sessionTitle == previousTitle
+                  && previous.speakerNames == previousNames && previous.liveText == previousText
+                  && jobs.models[previousID] === previous,
+                  "old transcript title and speaker names stay with the running job")
+            check(!next.canDeleteHistory(previousID) && !previous.canContinueInBackground,
+                  "active background history is protected and duplicate handoffs are rejected")
+            next.phase = .ready
+            check(next.canImportAudio == !file,
+                  "file decoder capacity is bounded while new recording remains available")
+            previous.completeBackgroundFixture()
+            check(next.segments.isEmpty && next.speakerNames.isEmpty && next.sessionTitle == "새 회의",
+                  "late transcription completion leaves the new meeting unchanged")
+            let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: previous.lastSavedURL!)) as! [String: Any]
+            check(saved["session_id"] as? String == previousID.uuidString && saved["title"] as? String == previousTitle,
+                  "background result is persisted under its original session ID")
+            jobs.tick()
+            for _ in 0..<100 where !jobs.models.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+            check(jobs.models.isEmpty && jobs.items.first?.completed == true && next.canDeleteHistory(previousID),
+                  "completed job releases resources and retains a visible result summary")
+            var quit = false
+            jobs.prepareToQuit(foreground: next) { quit = true }
+            for _ in 0..<100 where !quit { try await Task.sleep(for: .milliseconds(10)) }
+            check(quit, "session coordinator drains foreground and background saves on quit")
+        }
+        let priority = RecordingPriority()
+        priority.update(active: true, backlog: 0.8)
+        check(priority.shouldYield && priority.pacingDelay > 0, "file inference yields to microphone backlog")
+        priority.update(active: true, backlog: 0.1)
+        check(!priority.shouldYield, "file inference resumes when microphone catches up")
+        priority.update(active: false, backlog: 2)
+        check(!priority.shouldYield && priority.pacingDelay == 0, "ending recording releases file priority gate")
+        var launches = 0, cancellations = 0, completions = 0
+        var qwenCallbacks: [(QwenJobQueue.Output) -> Void] = []
+        let qwenQueue = QwenJobQueue(launch: { _, _, completion in
+            launches += 1; qwenCallbacks.append(completion)
+            return { cancellations += 1 }
+        })
+        let dummyAudio = root.appendingPathComponent("synthetic.m4a")
+        let firstQwen = qwenQueue.enqueue(audio: dummyAudio, context: "first") { _ in completions += 1 }
+        let cancelledQwen = qwenQueue.enqueue(audio: dummyAudio, context: "cancelled") { _ in completions += 100 }
+        _ = qwenQueue.enqueue(audio: dummyAudio, context: "third") { _ in completions += 1 }
+        try await Task.sleep(for: .milliseconds(20))
+        check(launches == 1, "Qwen jobs launch one model process at a time")
+        qwenQueue.cancel(cancelledQwen)
+        qwenQueue.cancel(firstQwen)
+        check(cancellations == 1 && launches == 1, "cancelled process retains its slot until actual termination")
+        qwenCallbacks[0](.success([]))
+        try await Task.sleep(for: .milliseconds(20))
+        check(launches == 2 && completions == 0, "cancelled queued job and late result are discarded")
+        qwenCallbacks[0](.success([]))
+        qwenCallbacks[1](.success([]))
+        try await Task.sleep(for: .milliseconds(20))
+        check(completions == 1, "Qwen completion is delivered once to the matching session")
+        var failures = 0
+        let failedQueue = QwenJobQueue(launch: { _, _, _ in throw AppFailure(message: "synthetic launch failure") })
+        _ = failedQueue.enqueue(audio: dummyAudio, context: "") { if case .failure = $0 { failures += 1 } }
+        _ = failedQueue.enqueue(audio: dummyAudio, context: "") { if case .failure = $0 { failures += 1 } }
+        try await Task.sleep(for: .milliseconds(20))
+        check(failures == 2, "Qwen launch failure releases the queue for the next job")
+        if CommandLine.arguments.contains("--test-concurrent-engines") { try await exerciseConcurrentEngines(root: root) }
         print("RESULT: \(passed) checks passed")
         if CommandLine.arguments.contains("--live-materials") {
             var liveSettings=CodexCorrectionSettings();liveSettings.selectProvider(.codex)
@@ -1016,6 +1125,71 @@ final class ControlledMicrophone: MicrophoneCapturing {
             print("LIVE RESULT: \(passed) checks passed")
         }
     }
+    @MainActor static func showBackgroundPreview(_ model: AppModel) {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.regular)
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 1440, height: 850),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.title = "백그라운드 전사 검증 · 합성 데이터"
+        window.contentView = NSHostingView(rootView: BackgroundPreviewView(state: BackgroundPreviewState(model: model)))
+        window.makeKeyAndOrderFront(nil); app.activate(ignoringOtherApps: true)
+        app.run()
+    }
+    @MainActor static func exerciseConcurrentEngines(root: URL) async throws {
+        let fileWorker = EngineWorker(), liveWorker = EngineWorker()
+        let priority = RecordingPriority()
+        let source = try SessionAudioRecorder(directory: root.appendingPathComponent("ConcurrentAudio"), sessionID: UUID())
+        for _ in 0..<300 { source.append(Array(repeating: 0, count: 1600), waitForCapacity: true) }
+        let audio = try source.finish()!
+        var beats = 0, maxGap = 0.0
+        let heartbeat = Task { @MainActor in
+            var last = ProcessInfo.processInfo.systemUptime
+            while !Task.isCancelled {
+                try await Task.sleep(for: .milliseconds(20))
+                let now = ProcessInfo.processInfo.systemUptime
+                maxGap = max(maxGap, now - last); last = now; beats += 1
+            }
+        }
+        let started = Date()
+        priority.update(active: true, backlog: 1)
+        var fileReady = false
+        let fileTask = Task { @MainActor in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(EngineSnapshot, Bool), Error>) in
+                fileWorker.transcribeFile(audio, session: UUID(), lowLatency: false, recordingPriority: priority,
+                    onProgress: { if $0.stage == .waitingForRecording { fileReady = true } },
+                    onSnapshot: { _ in }, completion: { continuation.resume(with: $0) })
+            }
+        }
+        for _ in 0..<1200 where !fileReady { try await Task.sleep(for: .milliseconds(50)) }
+        guard fileReady else { fileWorker.cancelFile(); throw AppFailure(message: "Concurrent test file engine timeout") }
+        let liveID = UUID()
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            liveWorker.begin(liveID, lowLatency: false) { continuation.resume(with: $0) }
+        }
+        priority.update(active: true, backlog: 0)
+        var liveError: Error?
+        for _ in 0..<50 {
+            let accepted = liveWorker.submit(Array(repeating: 0, count: 1600), session: liveID,
+                onSnapshot: { _ in }, onError: { liveError = $0 })
+            guard accepted else { throw AppFailure(message: "Concurrent microphone backlog overflow") }
+            priority.update(active: true, backlog: liveWorker.backlogSeconds)
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let live: EngineSnapshot = try await withCheckedThrowingContinuation { continuation in
+            liveWorker.finish(session: liveID) { continuation.resume(with: $0) }
+        }
+        priority.update(active: false, backlog: 0)
+        let file = try await fileTask.value
+        await withCheckedContinuation { c in fileWorker.shutdown { c.resume() } }
+        await withCheckedContinuation { c in liveWorker.shutdown { c.resume() } }
+        heartbeat.cancel()
+        if let liveError { throw liveError }
+        guard abs(live.audioSeconds - 5) < 0.2, abs(file.0.audioSeconds - 30) < 0.2, !file.1,
+              beats > 20, maxGap < 1 else { throw AppFailure(message: "Concurrent engine duration or UI heartbeat mismatch") }
+        print(String(format: "CONCURRENT ENGINES PASS: file=%.2fs live=%.2fs elapsed=%.2fs heartbeat=%d maxGap=%.3fs",
+                     file.0.audioSeconds, live.audioSeconds, Date().timeIntervalSince(started), beats, maxGap))
+        fflush(stdout)
+    }
     @MainActor static func showPreview(_ model:AppModel, exerciseFileImport: Bool = false) {
         let app=NSApplication.shared
         app.setActivationPolicy(exerciseFileImport ? .accessory : .regular)
@@ -1050,5 +1224,34 @@ private actor SuspendedMinutesGenerator: MinutesGenerating {
     func resolve(_ result:Result<MeetingMinutesFacts,Error>) {
         let continuation=pending;pending=nil
         continuation?.resume(with:result)
+    }
+}
+
+@MainActor final class BackgroundPreviewState: ObservableObject {
+    @Published var current: AppModel
+    let old: AppModel
+    let jobs = BackgroundMeetings()
+    init(model: AppModel) {
+        current = model; old = model
+        model.loadBackgroundFixture(file: true)
+        jobs.makeNext = { $0.makeNextMeeting(startBackgroundServices: false) }
+        jobs.select = { [weak self] in self?.current = $0 }
+        jobs.prepare = { next, record in
+            next.phase = .ready; next.newMeeting()
+            if record { next.phase = .recording }
+        }
+        jobs.connect(model)
+    }
+}
+struct BackgroundPreviewView: View {
+    @ObservedObject var state: BackgroundPreviewState
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("합성 데이터 · 새 회의 전환 검증")
+                Button("예시 전사 완료") { state.old.completeBackgroundFixture(); state.jobs.tick() }
+            }.padding(8)
+            ContentView(model: state.current, background: state.jobs).id(ObjectIdentifier(state.current))
+        }
     }
 }

@@ -25,6 +25,7 @@ import SwiftUI
     @Published private(set) var message = "테이블로그를 준비해요."
     @Published private(set) var failure: String?
     @Published private(set) var isReady = false
+    let background = BackgroundMeetings()
     private var started = false
     private var storageWarnings: [String] = []
 
@@ -51,6 +52,8 @@ import SwiftUI
         await update(.connections, "마이크와 AI 설정을 준비해요.")
         let model = AppModel(materials: materials, meeting: meeting, loadEngine: false, voice: voice)
         self.model = model
+        background.select = { [weak self] in self?.model = $0 }
+        background.connect(model)
         await loadEngine()
     }
 

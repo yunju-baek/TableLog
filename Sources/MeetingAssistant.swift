@@ -45,6 +45,9 @@ import Foundation
         summaryInterval=max(30,defaults.object(forKey:"assistant.summaryInterval") as? Int ?? 60)
         suggestionInterval=max(60,defaults.object(forKey:"assistant.suggestionInterval") as? Int ?? 120)
     }
+    func makeSessionCopy() -> MeetingAssistant {
+        MeetingAssistant(directory: directory, generator: generator, defaults: defaults, now: now)
+    }
     private func folder(_ id:UUID)->URL { directory.appendingPathComponent(id.uuidString,isDirectory:true) }
     private func sourceSignature(_ record:MeetingWorkRecord)->String {
         AssistantFiles.hash((record.materials?.documents.filter(\.enabled).map { $0.id.uuidString+"|"+$0.hash+"|"+$0.chunks.map { $0.id+($0.summary ?? "") }.joined() }.sorted().joined() ?? ""))

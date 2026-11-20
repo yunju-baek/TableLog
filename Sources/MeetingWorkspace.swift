@@ -148,6 +148,18 @@ struct MeetingWorkRecord: Codable {
             }
         } catch { templateLoadFailed=true;self.error="회의록 저장 폴더를 확인해 주세요. " + error.localizedDescription }
     }
+    var hasPendingAutomaticWork: Bool {
+        busy || !queue.isEmpty || records.values.contains { record in
+            activeSessions.contains(record.id) && record.error == nil && record.provider.isAvailable
+                && !record.segments.isEmpty && record.savedRevision < record.revision
+                && shouldAutomaticallyGenerate(record) && !AIUsageStatus.shared.isPaused(record.settings.provider)
+        }
+    }
+    func makeSessionCopy() -> MeetingWorkspace {
+        MeetingWorkspace(directory: directory, generator: generator, defaults: defaults,
+            initialTemplates: templateLoadFailed
+                ? .failure(AppFailure(message: error ?? "회의록 서식 확인 필요")) : .success(templates))
+    }
     func begin(id:UUID) {
         // Archived sessions are read when opened, keeping launch work independent of history size.
         if records[id] == nil {

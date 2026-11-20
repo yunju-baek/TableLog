@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var model: AppModel
+    var background: BackgroundMeetings? = nil
     @Environment(\.openWindow) private var openWindow
     @State private var lectureTranscript = false
     private struct VoiceLearningRequest: Identifiable { let id = UUID(); let speaker: Int? }
@@ -132,6 +133,7 @@ struct ContentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 25) {
                     captureStatus
+                    if let background { BackgroundMeetingsView(jobs: background) }
 
                     VStack(spacing: 10) {
                         Button {
@@ -142,6 +144,14 @@ struct ContentView: View {
                                 .foregroundStyle(AppTheme.violet).background(.white.opacity(0.7),in:RoundedRectangle(cornerRadius:11))
                         }.buttonStyle(.plain).disabled(!model.canPrepareMeeting)
 
+                        if model.canContinueInBackground {
+                            Button(action: model.start) {
+                                Label("새 회의 녹음", systemImage: "mic.badge.plus")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(maxWidth: .infinity).padding(.vertical, 12)
+                            }.buttonStyle(.borderedProminent)
+                                .help("현재 전사를 이어가며 새 회의를 녹음해요.")
+                        }
                         if model.canStop {
                             if !model.processingFile {
                                 Button(action: model.togglePause) {
@@ -199,8 +209,8 @@ struct ContentView: View {
                                 .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(AppTheme.violet.opacity(0.12)))
                         }
                         .buttonStyle(.plain)
-                        .disabled(!model.canStart)
-                        .opacity(model.canStart ? 1 : 0.42)
+                        .disabled(!model.canImportAudio)
+                        .opacity(model.canImportAudio ? 1 : 0.42)
                         .keyboardShortcut("o", modifiers: [.command])
                     }
 
@@ -753,6 +763,7 @@ struct ContentView: View {
                                        text: model.liveText, originalText: nil, isCorrecting: false, isCloudTranscript: false, onEditName: nil)
                     } else {
                         ForEach(model.conversationTurns.suffix(transcriptWindow.count)) { turn in
+                            let voiceName = model.voiceNamePresentation(for: turn.speaker)
                             TranscriptCard(speaker: turn.speaker, speakerName: model.speakerName(for: turn.speaker),
                                            start: turn.start, end: turn.end, text: model.displayedText(for: turn),
                                            originalText: nil,
@@ -768,8 +779,8 @@ struct ContentView: View {
                                            } : nil,
                                            onEditText: { textEditRequest=model.editRequest(for:turn) },
                                            onDeleteText: { model.deleteRecognizedTurn(turn) },
-                                           voiceName: model.voiceNamePresentation(for: turn.speaker),
-                                           onConfirmVoiceName: { model.confirmVoiceName(turn.speaker) },
+                                           voiceName: voiceName,
+                                           onConfirmVoiceName: { model.confirmVoiceName(turn.speaker, expectedName: voiceName.name) },
                                            onDismissVoiceName: { model.dismissVoiceSuggestion(turn.speaker) },
                                            onUndoVoiceName: { model.undoAutomaticVoiceName(turn.speaker) },
                                            continuousVoiceLearningEnabled: model.voice.vault.continuousLearningEnabled,
@@ -1131,6 +1142,11 @@ struct TranscriptCard: View, Equatable {
             if speakerName != "화자 \(speaker)", speaker > 0 {
                 Text("화자 \(speaker)").font(.system(size: 9)).foregroundStyle(AppTheme.muted)
             }
+            if let voiceName, voiceName.kind == .suggested || voiceName.kind == .automatic,
+               let onConfirmVoiceName {
+                VoiceNameConfirmButton(speaker: speaker, name: voiceName.name, compact: true,
+                    continuousLearningEnabled: continuousVoiceLearningEnabled, action: onConfirmVoiceName)
+            }
             if isCorrecting { ProgressView().controlSize(.mini).help("문맥 교정 중") }
             else if let recognitionLabel {
                 Text(recognitionLabel).font(.system(size: 9, weight: .medium))
@@ -1208,9 +1224,7 @@ private struct SpeakerNamesEditor: View {
                 Label("화자 이름", systemImage: "person.2.fill")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(AppTheme.ink)
-                Text(model.voice.vault.continuousLearningEnabled
-                     ? "등록된 목소리의 이름을 직접 입력해 확인하면 이 화자의 음성으로 누적 학습해요. 새 목소리는 ‘목소리 학습’에서 등록해 주세요."
-                     : "이름은 현재 대화에 적용돼요. 목소리 학습 화면에서 추가 학습할 수 있어요.")
+                Text("추정된 이름은 ‘이름 확정’으로 바로 반영돼요. 직접 입력한 이름은 ‘적용’을 눌러 주세요.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -1219,6 +1233,8 @@ private struct SpeakerNamesEditor: View {
                 ScrollView {
                     VStack(spacing: 11) {
                         ForEach(model.speakerIDs, id: \.self) { speaker in
+                            let presentation = model.voiceNamePresentation(for: speaker)
+                            VStack(alignment: .leading, spacing: 6) {
                             HStack(spacing: 11) {
                                 Text("화자 \(speaker)")
                                     .font(.system(size: 12, weight: .medium))
@@ -1247,12 +1263,25 @@ private struct SpeakerNamesEditor: View {
                                 .help("화자 \(speaker) 기본 이름으로 복원")
                                 .accessibilityLabel("화자 \(speaker) 기본 이름으로 복원")
                             }
+                            if presentation.kind == .suggested || presentation.kind == .automatic {
+                                HStack(spacing: 8) {
+                                    Text(presentation.name + (presentation.kind == .automatic ? " · 자동 연결" : " · 추정"))
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundStyle(AppTheme.violet).lineLimit(1)
+                                    Spacer(minLength: 4)
+                                    VoiceNameConfirmButton(speaker: speaker, name: presentation.name,
+                                        continuousLearningEnabled: model.voice.vault.continuousLearningEnabled) {
+                                            confirmSuggestion(speaker, name: presentation.name)
+                                        }
+                                }.padding(.leading, 65)
+                            }
+                            }
                             .id(speaker)
                         }
                     }
                     .padding(.vertical, 2)
                 }
-                .frame(height: CGFloat(min(max(model.speakerIDs.count, 1), 6)) * 43)
+                .frame(height: editorHeight)
                 .onAppear {
                     let target = preferredSpeaker ?? model.speakerIDs.first
                     if let target { proxy.scrollTo(target, anchor: .center) }
@@ -1273,7 +1302,7 @@ private struct SpeakerNamesEditor: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("취소", action: dismiss)
+                Button("닫기", action: dismiss)
                     .keyboardShortcut(.cancelAction)
                 Button("적용", action: applyNames)
                     .buttonStyle(.borderedProminent)
@@ -1306,6 +1335,22 @@ private struct SpeakerNamesEditor: View {
                 drafts[speaker] = initial
             }
         }
+    }
+
+    private var editorHeight: CGFloat {
+        let heights = model.speakerIDs.prefix(6).map { speaker -> CGFloat in
+            let kind = model.voiceNamePresentation(for: speaker).kind
+            return kind == .suggested || kind == .automatic ? 76 : 43
+        }
+        return max(43, heights.reduce(0, +))
+    }
+
+    private func confirmSuggestion(_ speaker: Int, name: String) {
+        guard model.confirmVoiceName(speaker, expectedName: name) else { return }
+        // This action is immediate; a later Apply keeps the confirmation and other rows' drafts.
+        let confirmed = model.enteredSpeakerName(for: speaker)
+        drafts[speaker] = confirmed
+        initialDrafts[speaker] = confirmed
     }
 
     private func applyNames() {
