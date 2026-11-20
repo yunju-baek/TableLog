@@ -1,0 +1,24 @@
+TableLog Android local transcription
+
+Bundled runtime: sherpa-onnx 2.0.1, k2-fsa contributors (Apache-2.0).
+https://github.com/k2-fsa/sherpa-onnx/tree/v2.0.1
+License: sherpa-onnx.txt
+
+The runtime includes ONNX Runtime, Microsoft Corporation (MIT).
+https://github.com/microsoft/onnxruntime
+License: onnxruntime.txt
+
+Separately downloaded models (not included in this APK):
+- SenseVoice Small, FunAudioLLM / Alibaba Group. INT8 ONNX conversion by
+  csukuangfj / sherpa-onnx. The original model remains subject to the FunASR
+  Model Open Source License Agreement, not the runtime's Apache license.
+  https://huggingface.co/FunAudioLLM/SenseVoiceSmall
+  https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17
+  License: sensevoice-model.txt
+- Silero VAD, Silero Team (MIT), distributed via sherpa-onnx.
+  https://github.com/snakers4/silero-vad
+  License: silero-vad.txt
+
+Pinned file URLs, sizes and SHA-256 are recorded in assets/local-models.json.
+TableLog uses these models for speech activity detection and transcription;
+it does not infer user emotions or use the model's audio-event labels.
