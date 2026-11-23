@@ -24,11 +24,9 @@ struct ContentView: View {
     @State private var latestTranscriptJump = 0
     @State private var transcriptWindow = TranscriptDisplayWindow()
     @State private var copied = false
-    @State private var showingSpeakerNames = false
+    @State private var speakerNameEdit: SpeakerNameEditingSession?
     @State private var showingContextEditor = false
     @State private var showingCloudSettings = false
-    @State private var preferredSpeaker: Int?
-    @State private var speakerEditorID = UUID()
     @State private var contextEditorID = UUID()
     @State private var cloudSettingsID = UUID()
 
@@ -40,7 +38,7 @@ struct ContentView: View {
     private var shouldFollowTranscript: Bool {
         followLatest && transcriptAtBottom && !scrollingTranscript
             && voiceLearningRequest == nil && textEditRequest == nil
-            && !showingSpeakerNames && !showingContextEditor && !showingCloudSettings
+            && speakerNameEdit == nil && !showingContextEditor && !showingCloudSettings
             && !showingComparison && !showingSpeakerReview
     }
 
@@ -66,12 +64,8 @@ struct ContentView: View {
         .frame(minWidth: showingAssistant ? 1240 : 900, minHeight: 680)
         .tint(AppTheme.violet)
         .environment(\.colorScheme, .light)
-        .sheet(isPresented: $showingSpeakerNames) {
-            // The editor owns a fixed viewport while voice suggestions change.
-            SpeakerNamesEditor(model: model, preferredSpeaker: preferredSpeaker) {
-                showingSpeakerNames = false
-            }
-            .id(speakerEditorID)
+        .sheet(item: $speakerNameEdit) { edit in
+            SpeakerNamesEditor(model: model, edit: edit) { speakerNameEdit = nil }
         }
         .sheet(item: $voiceLearningRequest) { request in
             VoiceIdentityView(model: model, voice: model.voice, initialSpeaker: request.speaker) { voiceLearningRequest = nil }
@@ -104,9 +98,10 @@ struct ContentView: View {
             openAISettings()
         }
         .onChange(of: model.speakerIDs) { _, speakers in
-            if speakers.isEmpty { showingSpeakerNames = false }
+            if speakers.isEmpty { speakerNameEdit = nil }
         }
         .onChange(of: model.editingSessionID) { _, _ in
+            speakerNameEdit = nil
             transcriptWindow.reset()
             transcriptAtBottom = true
             scrollingTranscript = false
@@ -117,7 +112,7 @@ struct ContentView: View {
     }
 
     private func openAISettings() {
-        showingSpeakerNames = false
+        speakerNameEdit = nil
         showingCloudSettings = false
         contextEditorID = UUID()
         showingContextEditor = true
@@ -504,7 +499,7 @@ struct ContentView: View {
     private var transcriptSettings: some View {
         HStack(spacing: 6) {
             Button {
-                showingSpeakerNames = false
+                speakerNameEdit = nil
                 showingContextEditor = false
                 cloudSettingsID = UUID()
                 showingCloudSettings = true
@@ -853,9 +848,7 @@ struct ContentView: View {
         guard !model.speakerIDs.isEmpty else { return }
         showingContextEditor = false
         showingCloudSettings = false
-        preferredSpeaker = speaker
-        speakerEditorID = UUID()
-        showingSpeakerNames = true
+        speakerNameEdit = SpeakerNameEditingSession(model: model, preferredSpeaker: speaker)
     }
 
     private func originalText(for segment: TranscriptSegment) -> String? {

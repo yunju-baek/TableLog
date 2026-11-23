@@ -1,24 +1,35 @@
 import SwiftUI
 
+@MainActor final class SpeakerNameEditingSession: ObservableObject, Identifiable {
+    let id = UUID()
+    let meetingID: UUID
+    let preferredSpeaker: Int?
+    @Published var values: [Int: String]
+    var initialValues: [Int: String]
+
+    init(model: AppModel, preferredSpeaker: Int?) {
+        meetingID = model.editingSessionID
+        self.preferredSpeaker = preferredSpeaker
+        let initial = Dictionary(uniqueKeysWithValues: model.speakerIDs.map {
+            ($0, model.enteredSpeakerName(for: $0))
+        })
+        values = initial
+        initialValues = initial
+    }
+}
+
 struct SpeakerNamesEditor: View {
     @ObservedObject var model: AppModel
-    let preferredSpeaker: Int?
+    @ObservedObject var edit: SpeakerNameEditingSession
     let dismiss: () -> Void
-    @State private var drafts: [Int: String]
-    @State private var initialDrafts: [Int: String]
     @FocusState private var focusedSpeaker: Int?
     @State private var contactSpeaker: Int?
     @State private var showContact = false
 
-    init(model: AppModel, preferredSpeaker: Int?, dismiss: @escaping () -> Void) {
+    init(model: AppModel, edit: SpeakerNameEditingSession, dismiss: @escaping () -> Void) {
         self.model = model
-        self.preferredSpeaker = preferredSpeaker
+        self.edit = edit
         self.dismiss = dismiss
-        let initial = Dictionary(uniqueKeysWithValues: model.speakerIDs.map {
-            ($0, model.enteredSpeakerName(for: $0))
-        })
-        _drafts = State(initialValue: initial)
-        _initialDrafts = State(initialValue: initial)
     }
 
     var body: some View {
@@ -44,8 +55,8 @@ struct SpeakerNamesEditor: View {
                                     .foregroundStyle(AppTheme.violet)
                                     .frame(width: 54, alignment: .leading)
                                 TextField("이름 입력", text: Binding(
-                                    get: { drafts[speaker] ?? model.enteredSpeakerName(for: speaker) },
-                                    set: { drafts[speaker] = $0 }
+                                    get: { edit.values[speaker] ?? model.enteredSpeakerName(for: speaker) },
+                                    set: { edit.values[speaker] = $0 }
                                 ))
                                 .textFieldStyle(.roundedBorder)
                                 .controlSize(.large)
@@ -54,7 +65,7 @@ struct SpeakerNamesEditor: View {
                                 .accessibilityLabel("화자 \(speaker) 이름")
                                 Button("연락처") { contactSpeaker = speaker; showContact = true }
                                 Button {
-                                    drafts[speaker] = ""
+                                    edit.values[speaker] = ""
                                     focusedSpeaker = speaker
                                 } label: {
                                     Image(systemName: "arrow.uturn.backward")
@@ -86,7 +97,7 @@ struct SpeakerNamesEditor: View {
                 }
                 .frame(maxHeight: .infinity)
                 .onAppear {
-                    let target = preferredSpeaker ?? model.speakerIDs.first
+                    let target = edit.preferredSpeaker ?? model.speakerIDs.first
                     if let target { proxy.scrollTo(target, anchor: .center) }
                     DispatchQueue.main.async { focusedSpeaker = target }
                 }
@@ -120,38 +131,39 @@ struct SpeakerNamesEditor: View {
         .environment(\.colorScheme, .light)
         .sheet(isPresented: $showContact) {
             MeetingContactsPicker(onSelect: { person in
-                if let speaker = contactSpeaker { model.bindMeetingContact(person, speaker: speaker); drafts[speaker] = person.name }
+                if let speaker = contactSpeaker { model.bindMeetingContact(person, speaker: speaker); edit.values[speaker] = person.name }
             }, onClose: { showContact = false })
         }
         .onChange(of: model.speakerIDs) { _, speakers in
             if speakers.isEmpty {
-                drafts = [:]
-                initialDrafts = [:]
+                edit.values = [:]
+                edit.initialValues = [:]
                 dismiss()
                 return
             }
             // New detections join the editor while each existing text field keeps
             // its local draft and focus throughout streaming transcript revisions.
-            for speaker in speakers where drafts[speaker] == nil {
+            for speaker in speakers where edit.values[speaker] == nil {
                 let initial = model.enteredSpeakerName(for: speaker)
-                initialDrafts[speaker] = initial
-                drafts[speaker] = initial
+                edit.initialValues[speaker] = initial
+                edit.values[speaker] = initial
             }
         }
     }
 
     private func confirmSuggestion(_ speaker: Int, name: String) {
-        guard model.confirmVoiceName(speaker, expectedName: name) else { return }
-        // This action is immediate; a later Apply keeps the confirmation and other rows' drafts.
+        guard model.editingSessionID == edit.meetingID,
+              model.confirmVoiceName(speaker, expectedName: name) else { return }
+        // This action is immediate; a later Apply keeps the confirmation and other rows' edit.values.
         let confirmed = model.enteredSpeakerName(for: speaker)
-        drafts[speaker] = confirmed
-        initialDrafts[speaker] = confirmed
+        edit.values[speaker] = confirmed
+        edit.initialValues[speaker] = confirmed
     }
 
     private func applyNames() {
-        guard !model.speakerIDs.isEmpty else { dismiss(); return }
+        guard model.editingSessionID == edit.meetingID, !model.speakerIDs.isEmpty else { dismiss(); return }
         for speaker in model.speakerIDs {
-            guard let draft = drafts[speaker], let initial = initialDrafts[speaker], draft != initial else { continue }
+            guard let draft = edit.values[speaker], let initial = edit.initialValues[speaker], draft != initial else { continue }
             model.confirmEnteredSpeakerName(draft, for: speaker)
         }
         dismiss()

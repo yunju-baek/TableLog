@@ -41,7 +41,7 @@ import Darwin
         let hosting = NSHostingView(rootView: ContentView(model: model))
         window.contentView = hosting
         // Exercise the actual editor and transcript together without opening the user's meeting.
-        let editor = NSHostingView(rootView: SpeakerNamesEditor(model: model, preferredSpeaker: 1, dismiss: {}))
+        let editor = NSHostingView(rootView: SpeakerNamesEditor(model: model, edit: SpeakerNameEditingSession(model: model, preferredSpeaker: 1), dismiss: {}))
         let editorWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 560),
             styleMask: [.titled], backing: .buffered, defer: false)
         if speakerUI { editorWindow.contentView = editor }
