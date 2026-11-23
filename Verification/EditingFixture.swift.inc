@@ -23,6 +23,12 @@ extension AppModel {
         syncMeetingMinutes(force: true)
     }
 
+    func resetVoiceNamesForLayoutFixture() {
+        speakerNames = [:]
+        voiceNameAssignments = VoiceNameAssignments()
+        voice.loadNameSuggestionsFixture()
+    }
+
     func clearVoiceNameFixture() {
         voice.reset(session: session)
         voiceNameAssignments = VoiceNameAssignments()

@@ -9,7 +9,11 @@ python3 - "$source_dir" "$stage_root" "$stage_app" <<'PY'
 from pathlib import Path
 import plistlib, sys
 source, stage, app = map(Path, sys.argv[1:])
-files = sorted(str(p) for p in (source/'Sources').glob('*.swift') if p.name != 'TableLogApp.swift')
+files = sorted(str(p) for p in (source/'Sources').glob('*.swift') if p.name not in ['TableLogApp.swift', 'AppModel.swift', 'VoiceIdentity.swift'])
+for name, fixture in [('AppModel.swift', 'EditingFixture.swift.inc'), ('VoiceIdentity.swift', 'VoiceIdentityFixture.swift.inc')]:
+    path = stage/name
+    path.write_text((source/'Sources'/name).read_text()+'\n'+(source/'Verification'/fixture).read_text())
+    files.append(str(path))
 files.append(str(source/'Verification/PerformanceApp.swift'))
 (stage/'sources.txt').write_text('\n'.join(files)+'\n')
 info = plistlib.loads((source/'Resources/Info.plist').read_bytes())
@@ -17,7 +21,7 @@ info.update(CFBundleIdentifier='local.TableLog.Performance.'+stage.name.split('.
             CFBundleName='TableLog Performance', CFBundleDisplayName='TableLog Performance')
 (app/'Contents/Info.plist').write_bytes(plistlib.dumps(info))
 PY
-xcrun swiftc -module-cache-path "${TABLELOG_MODULE_CACHE:-$source_dir/.build-cache}" -O -whole-module-optimization -swift-version 5 \
+xcrun swiftc -module-cache-path "${TABLELOG_MODULE_CACHE:-$source_dir/.build-cache}" -O -whole-module-optimization -swift-version 5 -D TABLELOG_VERIFICATION \
   -target arm64-apple-macosx26.0 -module-name TableLogPerformance -I "$source_dir/Native" -I "$source_dir/Native/Sherpa" \
   @"$stage_root/sources.txt" "$source_dir/Native/libHwajaNative.a" -L "$stage_app/Contents/Frameworks" \
   -lnemo_speech_asr -lsherpa-onnx-c-api -lc++ -framework PDFKit -framework Vision -framework Contacts \

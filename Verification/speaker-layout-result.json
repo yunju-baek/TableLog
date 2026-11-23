@@ -1,0 +1,19 @@
+{
+  "cpu_percent_one_core" : 41.184069117520536,
+  "cpu_seconds" : 8.5095539999999996,
+  "duration_seconds" : 20.662246791878715,
+  "final_rss_mib" : 210.390625,
+  "heartbeat_max_ms" : 282.2009997908026,
+  "heartbeat_over_100ms" : 42,
+  "heartbeat_p95_ms" : 134.6932917367667,
+  "layout_stress" : false,
+  "peak_rss_mib" : 221.203125,
+  "rendering" : "offscreen NSHostingView layout; bitmap capture only after measurement",
+  "scenario" : "1000 synthetic segments, 2 transcript updates\/s, 8 meter updates\/s; 5s warmup + 20s measurement; ASR and AI disabled",
+  "segments" : 1051,
+  "speaker_name_actions" : 41,
+  "speaker_ui" : true,
+  "transcript_updates" : 41,
+  "update_layout_p95_ms" : 255.01508335582912,
+  "version" : "2.9.9"
+}
